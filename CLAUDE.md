@@ -33,6 +33,11 @@ emulating Total Commander functionality and keyboard shortcuts.
   on all platforms; ctypes loader for real TC DLLs (WLX/WCX/WDX, later WFX) on
   Windows; same C API for natively compiled .so/.dylib on Linux/macOS.
 - Python >= 3.11, uv-managed project (`uv sync`, `uv run`). PyInstaller later.
+- Any native/C++ code on Windows is built with the MSYS2/MinGW toolchain
+  (ucrt64) -- NO MSVC support or compatibility required. Native code must
+  stay portable (Linux gcc/clang, macOS clang, Windows mingw-w64 ucrt).
+- Prefer pure-Python shims (ctypes) over compiled patches when both work;
+  compiled C++ is fine when genuinely needed (e.g. plugin window embedding).
 
 ## Layout
 - `src/flcmd/` -- app package; `app.py` is the entry point.

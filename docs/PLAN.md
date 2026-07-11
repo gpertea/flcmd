@@ -24,10 +24,13 @@ tests). User review requested at milestones marked [REVIEW].
   standalone `flcmd-view` entry point
 - F4 external editor (configurable), Shift+F4 new file  [REVIEW]
 
-## Stage 4 -- drag and drop
-- Drop IN per pane (FLTK FL_DND_* + text/uri-list paste) -> copy dialog
-- Drag OUT: dnd/x11.py XDND source via ctypes (test with xdotool/target app
-  under Xvfb); win32/macos stubs with clear interface for later  [REVIEW]
+## Stage 4 -- drag and drop [DONE EARLY, after stage 1]
+- Drop IN per pane (FLTK FL_DND_* + text/uri-list paste) -> confirm + copy
+- Drag OUT: dnd/x11.py XDND source via ctypes over FLTK's own X connection;
+  verified end-to-end against a GTK drop target under Xvfb (xdotool-driven)
+- Also landed early: menubar, mouse selection (click / Ctrl / Shift /
+  dead-space clear), full-height pane background
+- Still open: win32 (pywin32 OLE) and macOS (pyobjc) drag-out backends
 
 ## Stage 5 -- VFS: archives + built-in SSH
 - archive.py: browse zip/tar as directories; pack/unpack via F5

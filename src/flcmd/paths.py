@@ -81,3 +81,15 @@ def to_native(p: str) -> str:
 
 def from_native(p: str) -> str:
     return canon(p)
+
+
+def from_uri(uri: str) -> str:
+    """file:// URI -> canonical path ('file:///C:/x' and UNC forms too)."""
+    from urllib.parse import unquote, urlparse
+    u = urlparse(uri)
+    p = unquote(u.path)
+    if re.match(r"^/[A-Za-z]:", p):
+        p = p[1:]
+    if u.netloc and u.netloc.lower() != "localhost":
+        p = "//" + u.netloc + p
+    return canon(p)

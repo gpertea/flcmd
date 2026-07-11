@@ -1,14 +1,16 @@
 """File pane: path header + file table + selection footer.
 All keys resolve through the app keymap via the dispatch callable."""
 
+import os
+import shutil
 import time
 from datetime import datetime
 from fnmatch import fnmatch
 
 import fltk
 
-from .. import paths
-from ..vfs import DirEntry, VFS
+from .. import dnd, paths
+from ..vfs import DirEntry, LocalVFS, VFS
 
 _T = fltk.Fl_Table
 
@@ -41,10 +43,16 @@ class FileTable(fltk.Fl_Table_Row):
         self.type(fltk.Fl_Table_Row.SELECT_NONE)
         self.cols(4)
         self.col_header(1)
+        self.col_header_height(HDR_H)
         self.col_resize(1)
         self.row_header(0)
         self.row_height_all(ROW_H)
+        self.color(fltk.FL_WHITE)  # dead space below last row stays white
         self.callback(self._on_click)
+        self.when(fltk.FL_WHEN_CHANGED | fltk.FL_WHEN_RELEASE)
+        self._push_xy = None
+        self._dragging = False
+        self._cell_pushed = False
         self.end()
 
     def inner_w(self) -> int:
@@ -64,18 +72,58 @@ class FileTable(fltk.Fl_Table_Row):
         self._autosize_cols()
 
     def _on_click(self, wid):
-        if self.callback_context() != _T.CONTEXT_CELL:
+        ctx = self.callback_context()
+        ev = fltk.Fl.event()
+        if fltk.Fl.event_button() != fltk.FL_LEFT_MOUSE:
             return
-        self.take_focus()
-        row = self.callback_row()
-        if 0 <= row < len(self.pane.view):
-            self.pane.set_cursor(row)
-            if fltk.Fl.event_clicks():
-                self.pane.dispatch("nav.open", self.pane)
+        if ctx == _T.CONTEXT_CELL:
+            row = self.callback_row()
+            if not (0 <= row < len(self.pane.view)):
+                return
+            if ev == fltk.FL_PUSH:
+                self._cell_pushed = True
+                self.take_focus()
+                self.pane.on_mouse_push(row)
+                if fltk.Fl.event_clicks():
+                    self.pane.dispatch("nav.open", self.pane)
+            elif ev == fltk.FL_RELEASE and not self._dragging:
+                self.pane.on_mouse_release(row)
+        elif ctx == _T.CONTEXT_TABLE and ev == fltk.FL_PUSH:
+            # fires before CONTEXT_CELL on every push; a genuine dead-space
+            # click is one where no cell push follows (checked on release)
+            self.take_focus()
 
     def handle(self, event):
         if event in (fltk.FL_FOCUS, fltk.FL_UNFOCUS):
             self.redraw()
+            return 1
+        if event == fltk.FL_PUSH and fltk.Fl.event_button() == fltk.FL_LEFT_MOUSE:
+            self._push_xy = (fltk.Fl.event_x(), fltk.Fl.event_y())
+            self._dragging = False
+            self._cell_pushed = False
+            return super().handle(event)
+        if event == fltk.FL_DRAG and self._push_xy and not self._dragging:
+            dx = abs(fltk.Fl.event_x() - self._push_xy[0])
+            dy = abs(fltk.Fl.event_y() - self._push_xy[1])
+            if dx + dy > 6:
+                self._dragging = True
+                self._push_xy = None
+                self.pane.start_drag()
+                fltk.Fl.pushed(None)
+                self._dragging = False
+            return 1
+        if event == fltk.FL_RELEASE:
+            plain = not fltk.Fl.event_state() & (fltk.FL_CTRL | fltk.FL_SHIFT)
+            r = super().handle(event)
+            if (self._push_xy and not self._cell_pushed and plain
+                    and fltk.Fl.event_button() == fltk.FL_LEFT_MOUSE):
+                self.pane.clear_selection_click()  # dead-space click
+            self._push_xy = None
+            return r or 1
+        if event in (fltk.FL_DND_ENTER, fltk.FL_DND_DRAG, fltk.FL_DND_RELEASE):
+            return 1
+        if event == fltk.FL_PASTE:
+            self.pane.on_drop(fltk.Fl.event_text())
             return 1
         if event == fltk.FL_KEYDOWN:
             if self.pane.on_key():
@@ -139,6 +187,8 @@ class FilePane(fltk.Fl_Group):
         self.view: list[DirEntry] = []      # what the table shows (.. + entries)
         self.cursor = 0
         self.selected: set[str] = set()
+        self._anchor = 0
+        self._pending_collapse: int | None = None
         self.sort_key = "name"
         self.sort_rev = False
         self._search = ""
@@ -207,6 +257,7 @@ class FilePane(fltk.Fl_Group):
 
     def _sync(self):
         self.table.rows(len(self.view))
+        self.table.row_height_all(ROW_H)  # rows() resets heights to default
         self.table._autosize_cols()
         self.header.copy_label(" " + self.vfs.display(self.path))
         self._update_footer()
@@ -265,6 +316,104 @@ class FilePane(fltk.Fl_Group):
         self.selected = files - self.selected
         self._update_footer()
         self.table.redraw()
+
+    # -- mouse selection (click / Ctrl+click / Shift+click) -----------------
+    def on_mouse_push(self, row: int):
+        e = self.view[row]
+        state = fltk.Fl.event_state()
+        self._pending_collapse = None
+        if state & fltk.FL_SHIFT:
+            a, b = sorted((self._anchor, row))
+            self.selected = {en.name for en in self.view[a:b + 1] if en.name != ".."}
+            self.cursor = row
+        elif state & fltk.FL_CTRL:
+            if e.name != "..":
+                self.selected ^= {e.name}
+            self.cursor = self._anchor = row
+        else:
+            self.cursor = self._anchor = row
+            if e.name in self.selected and len(self.selected) > 1:
+                # may be the start of a multi-file drag: collapse on release
+                self._pending_collapse = row
+            else:
+                self.selected = set() if e.name == ".." else {e.name}
+        self.set_cursor(row)
+        self._update_footer()
+        self.table.redraw()
+
+    def on_mouse_release(self, row: int):
+        if self._pending_collapse is not None:
+            e = self.view[self._pending_collapse]
+            self.selected = {e.name}
+            self._update_footer()
+            self.table.redraw()
+        self._pending_collapse = None
+
+    def clear_selection_click(self):
+        self.selected.clear()
+        self._pending_collapse = None
+        self._update_footer()
+        self.table.redraw()
+
+    # -- drag and drop -------------------------------------------------------
+    def start_drag(self):
+        self._pending_collapse = None
+        if not isinstance(self.vfs, LocalVFS):
+            self.flash("drag-out: local files only (for now)")
+            return
+        e = self.current()
+        if self.selected and (not e or e.name in self.selected):
+            names = [en.name for en in self.view if en.name in self.selected]
+        elif e and e.name != "..":
+            names = [e.name]
+        else:
+            return
+        files = [paths.join(self.path, n) for n in names]
+        try:
+            own = []
+            w = fltk.Fl.first_window()
+            while w:
+                own.append(fltk.fl_xid(w))
+                w = fltk.Fl.next_window(w)
+            dnd.start_file_drag(self.window(), files, own)
+        except (NotImplementedError, RuntimeError) as ex:
+            self.flash(f"drag-out: {ex}")
+        # the nested drag loop consumed X events; repaint everything
+        w = fltk.Fl.first_window()
+        while w:
+            w.redraw()
+            w = fltk.Fl.next_window(w)
+
+    def on_drop(self, text: str):
+        files = []
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("file://"):
+                files.append(paths.from_uri(line))
+            elif line.startswith("/"):
+                files.append(paths.canon(line))
+        files = [f for f in files if f and paths.parent(f) != self.path]
+        if not files:
+            return
+        if not isinstance(self.vfs, LocalVFS):
+            self.flash("drop: only local targets for now")
+            return
+        if fltk.fl_choice(f"Copy {len(files)} item(s) to\n{self.path} ?",
+                          "Cancel", "Copy", None) != 1:
+            return
+        errs = []
+        for f in files:
+            try:
+                dst = paths.join(self.path, paths.basename(f))
+                if os.path.isdir(f):
+                    shutil.copytree(f, dst)
+                else:
+                    shutil.copy2(f, dst)
+            except OSError as ex:
+                errs.append(f"{paths.basename(f)}: {ex}")
+        self.refresh()
+        self.flash(f"copied {len(files) - len(errs)} item(s)"
+                   + (f", {len(errs)} failed" if errs else ""))
 
     # -- keyboard ------------------------------------------------------------
     _NAV = {

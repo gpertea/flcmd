@@ -10,6 +10,7 @@ from .keymap import Keymap
 from .panes import FilePane
 from .vfs import LocalVFS
 
+MENU_H = 25
 FKEY_H = 26
 FKEYS = [
     ("F3 View", "file.view"), ("F4 Edit", "file.edit"),
@@ -32,12 +33,16 @@ class App:
         self._viewers: list = []
 
         self.win = fltk.Fl_Double_Window(w, h, "flcmd")
-        self.tile = fltk.Fl_Tile(0, 0, w, h - FKEY_H)
+        self.menubar = fltk.Fl_Menu_Bar(0, 0, w, MENU_H)
+        self.menubar.box(fltk.FL_THIN_UP_BOX)
+        self._build_menu()
+        ph = h - MENU_H - FKEY_H
+        self.tile = fltk.Fl_Tile(0, MENU_H, w, ph)
         vfs = LocalVFS()
         lp = self._start_path(vfs, left_path, "left")
         rp = self._start_path(vfs, right_path, "right")
-        self.left = FilePane(0, 0, w // 2, h - FKEY_H, vfs, lp, self.dispatch, self.keymap)
-        self.right = FilePane(w // 2, 0, w - w // 2, h - FKEY_H, vfs, rp, self.dispatch, self.keymap)
+        self.left = FilePane(0, MENU_H, w // 2, ph, vfs, lp, self.dispatch, self.keymap)
+        self.right = FilePane(w // 2, MENU_H, w - w // 2, ph, vfs, rp, self.dispatch, self.keymap)
         self.tile.end()
         for side in ("left", "right"):
             p = getattr(self, side)
@@ -59,6 +64,36 @@ class App:
         self.win.resizable(self.tile)
         self.win.callback(self._win_cb)
         self.win.size_range(400, 300)
+
+    def _build_menu(self):
+        mb, cb = self.menubar, self._menu_cb
+        inactive = fltk.FL_MENU_INACTIVE
+        mb.add("&Files/&Quit\tAlt+F4", 0, cb, "app.quit")
+        mb.add("&Mark/Select &All\tCtrl+A", 0, cb, "sel.all")
+        mb.add("&Mark/&Unselect All\tCtrl+Shift+A", 0, cb, "sel.none")
+        mb.add("&Mark/&Invert Selection\tNum *", 0, cb, "sel.invert",
+               fltk.FL_MENU_DIVIDER)
+        mb.add("&Mark/Select &Group...\tNum +", 0, cb, "sel.glob_add")
+        mb.add("&Mark/Unselect Grou&p...\tNum -", 0, cb, "sel.glob_sub")
+        mb.add("&Commands/&Search Files...\tAlt+F7", 0, cb, "cmd.search", inactive)
+        mb.add("&Commands/Open &Terminal", 0, cb, "cmd.terminal", inactive)
+        mb.add("&Net/&SSH\\/SFTP Connect...\tCtrl+N", 0, cb, "net.connect", inactive)
+        mb.add("&Show/Sort by &Name\tCtrl+F3", 0, cb, "sort.name")
+        mb.add("&Show/Sort by &Extension\tCtrl+F4", 0, cb, "sort.ext")
+        mb.add("&Show/Sort by &Date\tCtrl+F5", 0, cb, "sort.date")
+        mb.add("&Show/Sort by &Size\tCtrl+F6", 0, cb, "sort.size",
+               fltk.FL_MENU_DIVIDER)
+        mb.add("&Show/&Refresh\tCtrl+R", 0, cb, "pane.refresh")
+        mb.add("&Show/S&wap Panes\tCtrl+U", 0, cb, "pane.swap")
+        mb.add("C&onfiguration/&Options...", 0, cb, "cfg.options", inactive)
+        mb.add("&Help/&About flcmd", 0, cb, "help.about")
+
+    def _menu_cb(self, wid, action):
+        if action == "help.about":
+            fltk.fl_message("flcmd 0.1\nDual-pane file manager (pyFLTK)\n"
+                            "Total Commander style keybindings")
+            return
+        self.dispatch(action, self.active())
 
     def _start_path(self, vfs, override, side) -> str:
         p = override or self.cfg.get(side, {}).get("path")
