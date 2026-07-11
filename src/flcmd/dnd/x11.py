@@ -28,8 +28,22 @@ Window = Atom = Time = C.c_ulong
 ButtonRelease, MotionNotify, Expose = 5, 6, 12
 SelectionClear, SelectionRequest, SelectionNotify, ClientMessage = 29, 30, 31, 33
 ButtonReleaseMask, PointerMotionMask, ButtonMotionMask = 1 << 3, 1 << 6, 1 << 13
+ExposureMask = 1 << 15
 PropModeReplace, CurrentTime, XA_ATOM = 0, 0, 4
 XC_HAND2 = 60
+GrabModeAsync, GrabSuccess = 1, 0
+CWOverrideRedirect = 1 << 9
+
+
+class _XSetWindowAttributes(C.Structure):
+    _fields_ = [("background_pixmap", C.c_ulong), ("background_pixel", C.c_ulong),
+                ("border_pixmap", C.c_ulong), ("border_pixel", C.c_ulong),
+                ("bit_gravity", C.c_int), ("win_gravity", C.c_int),
+                ("backing_store", C.c_int), ("backing_planes", C.c_ulong),
+                ("backing_pixel", C.c_ulong), ("save_under", C.c_int),
+                ("event_mask", C.c_long), ("do_not_propagate_mask", C.c_long),
+                ("override_redirect", C.c_int), ("colormap", C.c_ulong),
+                ("cursor", C.c_ulong)]
 
 
 class _XAny(C.Structure):
@@ -109,7 +123,79 @@ def _xlib():
         _x.XCreateFontCursor.restype = C.c_ulong
         _x.XCreateFontCursor.argtypes = [C.c_void_p, C.c_uint]
         _x.XChangeActivePointerGrab.argtypes = [C.c_void_p, C.c_uint, C.c_ulong, Time]
+        _x.XGrabPointer.restype = C.c_int
+        _x.XGrabPointer.argtypes = [C.c_void_p, Window, C.c_int, C.c_uint,
+                                    C.c_int, C.c_int, Window, C.c_ulong, Time]
+        _x.XUngrabPointer.argtypes = [C.c_void_p, Time]
+        _x.XFreeCursor.argtypes = [C.c_void_p, C.c_ulong]
+        _x.XCreateSimpleWindow.restype = Window
+        _x.XCreateSimpleWindow.argtypes = [C.c_void_p, Window, C.c_int, C.c_int,
+                                           C.c_uint, C.c_uint, C.c_uint,
+                                           C.c_ulong, C.c_ulong]
+        _x.XChangeWindowAttributes.argtypes = [C.c_void_p, Window, C.c_ulong,
+                                               C.c_void_p]
+        _x.XSelectInput.argtypes = [C.c_void_p, Window, C.c_long]
+        _x.XMapRaised.argtypes = [C.c_void_p, Window]
+        _x.XMoveWindow.argtypes = [C.c_void_p, Window, C.c_int, C.c_int]
+        _x.XDestroyWindow.argtypes = [C.c_void_p, Window]
+        _x.XCreateGC.restype = C.c_void_p
+        _x.XCreateGC.argtypes = [C.c_void_p, Window, C.c_ulong, C.c_void_p]
+        _x.XFreeGC.argtypes = [C.c_void_p, C.c_void_p]
+        _x.XSetForeground.argtypes = [C.c_void_p, C.c_void_p, C.c_ulong]
+        _x.XDrawString.argtypes = [C.c_void_p, Window, C.c_void_p, C.c_int,
+                                   C.c_int, C.c_char_p, C.c_int]
+        _x.XBlackPixel.restype = C.c_ulong
+        _x.XBlackPixel.argtypes = [C.c_void_p, C.c_int]
+        _x.XWhitePixel.restype = C.c_ulong
+        _x.XWhitePixel.argtypes = [C.c_void_p, C.c_int]
     return _x
+
+
+def _dnd_cursor(x, dpy) -> int:
+    """A themed dnd/copy cursor if libXcursor has one, else the hand."""
+    try:
+        xc = C.CDLL("libXcursor.so.1")
+        xc.XcursorLibraryLoadCursor.restype = C.c_ulong
+        xc.XcursorLibraryLoadCursor.argtypes = [C.c_void_p, C.c_char_p]
+        for name in (b"dnd-copy", b"copy", b"dnd-move", b"grabbing"):
+            cur = xc.XcursorLibraryLoadCursor(dpy, name)
+            if cur:
+                return cur
+    except OSError:
+        pass
+    return x.XCreateFontCursor(dpy, XC_HAND2)
+
+
+class _DragIcon:
+    """Small override-redirect window following the pointer during a drag."""
+
+    def __init__(self, x, dpy, root, label: str):
+        self.x, self.dpy = x, dpy
+        self.label = label.encode("utf-8", "replace")
+        self.w = 7 * len(label) + 18
+        black, white = x.XBlackPixel(dpy, 0), x.XWhitePixel(dpy, 0)
+        self.win = x.XCreateSimpleWindow(dpy, root, -100, -100, self.w, 20,
+                                         1, black, white)
+        attrs = _XSetWindowAttributes()
+        attrs.override_redirect = 1
+        x.XChangeWindowAttributes(dpy, self.win, CWOverrideRedirect,
+                                  C.byref(attrs))
+        x.XSelectInput(dpy, self.win, ExposureMask)
+        self.gc = x.XCreateGC(dpy, self.win, 0, None)
+        x.XSetForeground(dpy, self.gc, black)
+        x.XMapRaised(dpy, self.win)
+
+    def move(self, px: int, py: int):
+        self.x.XMoveWindow(self.dpy, self.win, px + 14, py + 12)
+
+    def expose(self):
+        self.x.XDrawString(self.dpy, self.win, self.gc, 8, 14,
+                           self.label, len(self.label))
+
+    def destroy(self):
+        self.x.XFreeGC(self.dpy, self.gc)
+        self.x.XDestroyWindow(self.dpy, self.win)
+        self.x.XFlush(self.dpy)
 
 
 def _fltk_display() -> int:
@@ -225,10 +311,19 @@ def drag_files(src_win: int, file_paths: list[str], own_xids=()) -> bool:
     if x.XGetSelectionOwner(dpy, A["XdndSelection"]) != src_win:
         _dbg("failed to own XdndSelection")
         return False
-    # keep the implicit grab but show a drag cursor and ensure motion events
-    x.XChangeActivePointerGrab(
-        dpy, ButtonReleaseMask | PointerMotionMask | ButtonMotionMask,
-        x.XCreateFontCursor(dpy, XC_HAND2), CurrentTime)
+    # visual feedback: dnd cursor on the grab + a label following the pointer
+    mask = ButtonReleaseMask | PointerMotionMask | ButtonMotionMask
+    cursor = _dnd_cursor(x, dpy)
+    grabbed = x.XGrabPointer(dpy, src_win, 0, mask, GrabModeAsync,
+                             GrabModeAsync, 0, cursor, CurrentTime)
+    _dbg(f"XGrabPointer -> {grabbed}")
+    if grabbed != GrabSuccess:  # keep the implicit grab, just set the cursor
+        x.XChangeActivePointerGrab(dpy, mask, cursor, CurrentTime)
+    n = len(file_paths)
+    icon = _DragIcon(x, dpy, root,
+                     file_paths[0].rsplit("/", 1)[-1] if n == 1
+                     else f"{n} items")
+    own.add(icon.win)
 
     target = tver = 0
     accepted = dropped = finished = False
@@ -239,6 +334,7 @@ def drag_files(src_win: int, file_paths: list[str], own_xids=()) -> bool:
             if ev.type == MotionNotify:
                 while x.XCheckTypedEvent(dpy, MotionNotify, C.byref(ev)):
                     pass  # compress queued motion
+                icon.move(ev.xmotion.x_root, ev.xmotion.y_root)
                 tgt, ver = _target_under_pointer(x, dpy, root, A["XdndAware"])
                 if tgt in own:
                     tgt = 0  # own windows can't answer: FLTK loop is paused
@@ -259,6 +355,8 @@ def drag_files(src_win: int, file_paths: list[str], own_xids=()) -> bool:
                 if ev.xclient.message_type == A["XdndStatus"]:
                     accepted = bool(ev.xclient.data.l[1] & 1)
                     _dbg(f"XdndStatus accepted={accepted}")
+            elif ev.type == Expose and ev.xany.window == icon.win:
+                icon.expose()
             elif ev.type == SelectionRequest:
                 _dbg("SelectionRequest (pre-drop)")
                 _convert_selection(x, dpy, ev, A, uris, plain)
@@ -305,5 +403,8 @@ def drag_files(src_win: int, file_paths: list[str], own_xids=()) -> bool:
             time.sleep(0.005)
         return True  # drop was sent and accepted
     finally:
+        icon.destroy()
+        x.XUngrabPointer(dpy, CurrentTime)
+        x.XFreeCursor(dpy, cursor)
         x.XSetSelectionOwner(dpy, A["XdndSelection"], 0, CurrentTime)
         x.XFlush(dpy)

@@ -67,21 +67,24 @@ def test_click_selection(app):
     pane = app.left  # view: .. adir bdir alpha.txt beta.log
     _click(app, pane, 3)
     assert pane.cursor == 3, "row hit-test calibration is off"
-    assert pane.selected == {"alpha.txt"}
+    assert pane.selected == set()  # plain click: implicit selection only
     _click(app, pane, 4, "Control_L")
-    assert pane.selected == {"alpha.txt", "beta.log"}
+    assert pane.selected == {"beta.log"} and pane.cursor == 4
     _click(app, pane, 4, "Control_L")  # ctrl+click toggles off
-    assert pane.selected == {"alpha.txt"}
-    _click(app, pane, 1)
-    assert pane.selected == {"adir"}
-    _click(app, pane, 3, "Shift_L")  # range from anchor (1) to 3
+    assert pane.selected == set()
+    _click(app, pane, 3, "Control_L")
+    assert pane.selected == {"alpha.txt"} and pane.cursor == 3
+    _click(app, pane, 1)  # plain click moves cursor, selection untouched
+    assert pane.cursor == 1 and pane.selected == {"alpha.txt"}
+    _click(app, pane, 2, "Shift_L")  # adds cursor(1)..2 to the selection
     assert pane.selected == {"adir", "bdir", "alpha.txt"}
+    assert pane.cursor == 2
 
 
-def test_click_dead_space_clears(app):
+def test_click_dead_space_keeps_selection(app):
     import fltk
     pane = app.left
-    _click(app, pane, 3)
+    _click(app, pane, 3, "Control_L")
     assert pane.selected == {"alpha.txt"}
     t = pane.table
     x = app.win.x() + t.x() + 40
@@ -89,10 +92,11 @@ def test_click_dead_space_clears(app):
     subprocess.run(["xdotool", "mousemove", str(x + 9), str(y + 5),
                     "mousemove", "--sync", str(x), str(y),
                     "click", "1"], check=True)
-    deadline = time.monotonic() + 2
-    while pane.selected and time.monotonic() < deadline:
+    end = time.monotonic() + 0.5
+    while time.monotonic() < end:
         fltk.Fl.wait(0.02)
-    assert pane.selected == set()
+    assert pane.selected == {"alpha.txt"}  # TC keeps the selection
+    assert pane.cursor == 3
 
 
 def test_drag_out_to_gtk(app, tmp_path):

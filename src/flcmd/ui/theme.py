@@ -1,0 +1,22 @@
+"""Palette sampled from the reference Total Commander screenshot
+(totalcmd.png): pale-blue cursor bar with normal text (never inverted),
+red selection font, subtly alternating row backgrounds."""
+
+import fltk
+
+
+def _c(r, g, b):
+    return fltk.fl_rgb_color(r, g, b)
+
+
+ROW_BG = _c(249, 252, 255)        # even rows
+ROW_BG_ALT = _c(235, 242, 254)    # odd rows
+CURSOR_BG = _c(199, 230, 255)     # cursor bar (focused pane)
+CURSOR_EDGE = _c(153, 180, 209)   # cursor outline (unfocused pane)
+TEXT = fltk.FL_BLACK
+SEL_TEXT = _c(204, 0, 0)          # selected entries: red font
+HEADER_BG = fltk.FL_WHITE
+HEADER_EDGE = _c(208, 214, 222)
+PATH_ACTIVE = _c(153, 180, 209)
+PATH_IDLE = _c(191, 205, 219)
+FOOTER_BG = _c(240, 240, 240)

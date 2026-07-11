@@ -10,6 +10,7 @@ from fnmatch import fnmatch
 import fltk
 
 from .. import dnd, paths
+from ..ui import theme
 from ..vfs import DirEntry, LocalVFS, VFS
 
 _T = fltk.Fl_Table
@@ -47,7 +48,7 @@ class FileTable(fltk.Fl_Table_Row):
         self.col_resize(1)
         self.row_header(0)
         self.row_height_all(ROW_H)
-        self.color(fltk.FL_WHITE)  # dead space below last row stays white
+        self.color(theme.ROW_BG)  # dead space below last row matches rows
         self.callback(self._on_click)
         self.when(fltk.FL_WHEN_CHANGED | fltk.FL_WHEN_RELEASE)
         self._push_xy = None
@@ -86,15 +87,13 @@ class FileTable(fltk.Fl_Table_Row):
                 self.pane.on_mouse_push(row)
                 if fltk.Fl.event_clicks():
                     self.pane.dispatch("nav.open", self.pane)
-            elif ev == fltk.FL_RELEASE and not self._dragging:
-                self.pane.on_mouse_release(row)
         elif ctx == _T.CONTEXT_TABLE and ev == fltk.FL_PUSH:
-            # fires before CONTEXT_CELL on every push; a genuine dead-space
-            # click is one where no cell push follows (checked on release)
+            # dead-space click: just focus the pane (TC keeps selection)
             self.take_focus()
 
     def handle(self, event):
         if event in (fltk.FL_FOCUS, fltk.FL_UNFOCUS):
+            self.pane.set_active(event == fltk.FL_FOCUS)
             self.redraw()
             return 1
         if event == fltk.FL_PUSH and fltk.Fl.event_button() == fltk.FL_LEFT_MOUSE:
@@ -113,13 +112,8 @@ class FileTable(fltk.Fl_Table_Row):
                 self._dragging = False
             return 1
         if event == fltk.FL_RELEASE:
-            plain = not fltk.Fl.event_state() & (fltk.FL_CTRL | fltk.FL_SHIFT)
-            r = super().handle(event)
-            if (self._push_xy and not self._cell_pushed and plain
-                    and fltk.Fl.event_button() == fltk.FL_LEFT_MOUSE):
-                self.pane.clear_selection_click()  # dead-space click
             self._push_xy = None
-            return r or 1
+            return super().handle(event) or 1
         if event in (fltk.FL_DND_ENTER, fltk.FL_DND_DRAG, fltk.FL_DND_RELEASE):
             return 1
         if event == fltk.FL_PASTE:
@@ -137,8 +131,12 @@ class FileTable(fltk.Fl_Table_Row):
             return
         if ctx == _T.CONTEXT_COL_HEADER:
             fltk.fl_push_clip(x, y, w, h)
-            fltk.fl_draw_box(fltk.FL_THIN_UP_BOX, x, y, w, h, fltk.FL_BACKGROUND_COLOR)
-            fltk.fl_color(fltk.FL_BLACK)
+            fltk.fl_color(theme.HEADER_BG)
+            fltk.fl_rectf(x, y, w, h)
+            fltk.fl_color(theme.HEADER_EDGE)
+            fltk.fl_line(x, y + h - 1, x + w - 1, y + h - 1)
+            fltk.fl_line(x + w - 1, y + 2, x + w - 1, y + h - 3)
+            fltk.fl_color(theme.TEXT)
             fltk.fl_draw(("Name", "Ext", "Size", "Date")[c], x + 4, y, w - 8, h,
                          fltk.FL_ALIGN_LEFT)
             fltk.fl_pop_clip()
@@ -148,18 +146,18 @@ class FileTable(fltk.Fl_Table_Row):
         e = self.pane.view[r]
         cursor = r == self.pane.cursor
         focused = fltk.Fl.focus() == self
-        selected = e.name in self.pane.selected
-        bg = fltk.FL_WHITE
-        if cursor:
-            bg = fltk.fl_rgb_color(49, 106, 197) if focused else fltk.fl_rgb_color(200, 208, 220)
         fltk.fl_push_clip(x, y, w, h)
-        fltk.fl_color(bg)
-        fltk.fl_rectf(x, y, w, h)
-        if selected:
-            fg = fltk.fl_rgb_color(255, 80, 80) if (cursor and focused) else fltk.FL_RED
+        if cursor and focused:
+            fltk.fl_color(theme.CURSOR_BG)
         else:
-            fg = fltk.FL_WHITE if (cursor and focused) else fltk.FL_BLACK
-        fltk.fl_color(fg)
+            fltk.fl_color(theme.ROW_BG if r % 2 == 0 else theme.ROW_BG_ALT)
+        fltk.fl_rectf(x, y, w, h)
+        if cursor and not focused:  # inactive pane: outline instead of fill
+            fltk.fl_color(theme.CURSOR_EDGE)
+            fltk.fl_line(x, y, x + w - 1, y)
+            fltk.fl_line(x, y + h - 1, x + w - 1, y + h - 1)
+        # text is never inverted: black, or red when explicitly selected
+        fltk.fl_color(theme.SEL_TEXT if e.name in self.pane.selected else theme.TEXT)
         if c == 0:
             nm = e.name if e.is_dir else paths.splitext(e.name)[0]
             if e.is_dir and e.name != "..":
@@ -187,20 +185,20 @@ class FilePane(fltk.Fl_Group):
         self.view: list[DirEntry] = []      # what the table shows (.. + entries)
         self.cursor = 0
         self.selected: set[str] = set()
-        self._anchor = 0
-        self._pending_collapse: int | None = None
         self.sort_key = "name"
         self.sort_rev = False
         self._search = ""
         self._search_t = 0.0
         self.header = fltk.Fl_Box(x, y, w, HDR_H)
         self.header.box(fltk.FL_FLAT_BOX)
+        self.header.color(theme.PATH_IDLE)
         self.header.align(fltk.FL_ALIGN_INSIDE | fltk.FL_ALIGN_LEFT | fltk.FL_ALIGN_CLIP)
         self.header.labelfont(fltk.FL_HELVETICA_BOLD)
         self.header.labelsize(12)
         self.table = FileTable(x, y + HDR_H, w, h - HDR_H - FOOT_H, self)
         self.footer = fltk.Fl_Box(x, y + h - FOOT_H, w, FOOT_H)
-        self.footer.box(fltk.FL_THIN_DOWN_BOX)
+        self.footer.box(fltk.FL_FLAT_BOX)
+        self.footer.color(theme.FOOTER_BG)
         self.footer.align(fltk.FL_ALIGN_INSIDE | fltk.FL_ALIGN_LEFT | fltk.FL_ALIGN_CLIP)
         self.footer.labelsize(11)
         self.resizable(self.table)
@@ -317,47 +315,27 @@ class FilePane(fltk.Fl_Group):
         self._update_footer()
         self.table.redraw()
 
-    # -- mouse selection (click / Ctrl+click / Shift+click) -----------------
+    # -- mouse selection (TC semantics) --------------------------------------
+    # Plain click only moves the cursor: the item under the cursor is the
+    # implicit selection, never shown in red. Explicit (red) selection is
+    # built with Ins, Ctrl+click (toggle, cursor follows) or Shift+click
+    # (adds the cursor..clicked range).
     def on_mouse_push(self, row: int):
         e = self.view[row]
         state = fltk.Fl.event_state()
-        self._pending_collapse = None
         if state & fltk.FL_SHIFT:
-            a, b = sorted((self._anchor, row))
-            self.selected = {en.name for en in self.view[a:b + 1] if en.name != ".."}
-            self.cursor = row
+            a, b = sorted((self.cursor, row))
+            self.selected |= {en.name for en in self.view[a:b + 1]
+                              if en.name != ".."}
         elif state & fltk.FL_CTRL:
             if e.name != "..":
                 self.selected ^= {e.name}
-            self.cursor = self._anchor = row
-        else:
-            self.cursor = self._anchor = row
-            if e.name in self.selected and len(self.selected) > 1:
-                # may be the start of a multi-file drag: collapse on release
-                self._pending_collapse = row
-            else:
-                self.selected = set() if e.name == ".." else {e.name}
         self.set_cursor(row)
-        self._update_footer()
-        self.table.redraw()
-
-    def on_mouse_release(self, row: int):
-        if self._pending_collapse is not None:
-            e = self.view[self._pending_collapse]
-            self.selected = {e.name}
-            self._update_footer()
-            self.table.redraw()
-        self._pending_collapse = None
-
-    def clear_selection_click(self):
-        self.selected.clear()
-        self._pending_collapse = None
         self._update_footer()
         self.table.redraw()
 
     # -- drag and drop -------------------------------------------------------
     def start_drag(self):
-        self._pending_collapse = None
         if not isinstance(self.vfs, LocalVFS):
             self.flash("drag-out: local files only (for now)")
             return
@@ -468,6 +446,10 @@ class FilePane(fltk.Fl_Group):
         self.footer.copy_label(
             f" {ssel:,} / {total:,} bytes in {len(sel)+seldirs} / "
             f"{len(files)+ndirs} selected")
+
+    def set_active(self, active: bool):
+        self.header.color(theme.PATH_ACTIVE if active else theme.PATH_IDLE)
+        self.header.redraw()
 
     def flash(self, msg: str):
         self.footer.copy_label(" " + msg)
