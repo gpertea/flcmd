@@ -1,0 +1,32 @@
+[project]
+name = "flcmd"
+version = "0.1.0"
+description = "Dual-pane file manager (Total Commander style) in Python + pyFLTK"
+readme = "README.md"
+authors = [
+    { name = "Geo Pertea", email = "geo.pertea@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "paramiko>=5.0.0",
+    "pyfltk>=1.4.5.0",
+]
+
+[project.scripts]
+flcmd = "flcmd.app:main"
+flcmd-view = "flcmd.viewer:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gui: tests that need an X display (run under Xvfb)",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10.0"]
+build-backend = "uv_build"
