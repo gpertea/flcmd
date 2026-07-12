@@ -159,6 +159,7 @@ class App:
         pane.refresh()
 
     def _act_nav_open(self, pane):
+        from .vfs.archive import is_archive
         e = pane.current()
         if not e:
             return
@@ -166,11 +167,19 @@ class App:
             self._act_nav_up(pane)
         elif e.is_dir:
             pane.set_path(paths.join(pane.path, e.name))
+        elif is_archive(e.name):
+            pane.enter_archive(e.name)
         else:
-            pane.flash("run/open file: stage 2")
+            pane.flash("no association configured (use F3/F4)")
+
+    def _act_nav_open_archive(self, pane):
+        e = pane.current()
+        if e and not e.is_dir:
+            pane.enter_archive(e.name)
 
     def _act_nav_up(self, pane):
         if paths.is_root(pane.path):
+            pane.pop_vfs()  # leave archive/remote back to where it lives
             return
         child = paths.basename(pane.path)
         pane.set_path(paths.parent(pane.path), cursor_name=child)
@@ -334,16 +343,40 @@ class App:
     def _act_sel_toggle_space(self, pane):
         pane.toggle_select(advance=False, du=True)
 
+    def _materialize(self, pane, name: str) -> str | None:
+        """Local path for a pane entry; non-local VFS entries are pulled to
+        a temp file (viewer/preview need a real file)."""
+        p = paths.join(pane.path, name)
+        if pane.vfs.scheme == "file":
+            return p
+        import tempfile
+        try:
+            with pane.vfs.open(p) as src:
+                fd, tmp = tempfile.mkstemp(suffix="_" + name)
+                with os.fdopen(fd, "wb") as dst:
+                    while chunk := src.read(1 << 20):
+                        dst.write(chunk)
+            return paths.canon(tmp)
+        except OSError as e:
+            pane.flash(f"read: {e}")
+            return None
+
     def _act_file_view(self, pane):
         e = pane.current()
         if not e or e.is_dir:
             return
+        p = self._materialize(pane, e.name)
+        if not p:
+            return
         self._viewers = [v for v in self._viewers if v.visible()]
-        self._viewers.append(viewer.view_file(paths.join(pane.path, e.name)))
+        self._viewers.append(viewer.view_file(p))
 
     def _act_file_edit(self, pane):
         e = pane.current()
         if not e or e.is_dir:
+            return
+        if pane.vfs.scheme != "file":
+            pane.flash("edit: local files only")
             return
         if viewer.edit_file(self.cfg, paths.join(pane.path, e.name),
                             pane.flash):

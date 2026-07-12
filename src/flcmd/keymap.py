@@ -40,6 +40,7 @@ DEFAULTS = {
     "pane.refresh": ["Ctrl+R"],
     "nav.open": ["Enter", "KPEnter"],
     "nav.up": ["BackSpace", "Ctrl+PgUp"],
+    "nav.open_archive": ["Ctrl+PgDn"],
     "nav.cursor_to_left": ["Ctrl+Left"],
     "nav.cursor_to_right": ["Ctrl+Right"],
     "sel.toggle": ["Insert"],

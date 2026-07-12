@@ -199,6 +199,7 @@ class FilePane(fltk.Fl_Group):
         self.dir_sizes: dict[str, int] = {}  # computed via Space / Ctrl+L
         self._rename: _RenameInput | None = None
         self._mtime = 0.0  # dir mtime at last listing (external-change poll)
+        self.vfs_stack: list[tuple] = []  # (vfs, path, cursor) below this one
         self.sort_key = "name"
         self.sort_rev = False
         self._search = ""
@@ -270,7 +271,8 @@ class FilePane(fltk.Fl_Group):
                       key=lambda e: e.name.lower())
         files = sorted((e for e in self.entries if not e.is_dir),
                        key=keyf, reverse=self.sort_rev)
-        self.view = ([] if paths.is_root(self.path) else [_UP]) + dirs + files
+        top = paths.is_root(self.path) and not self.vfs_stack
+        self.view = ([] if top else [_UP]) + dirs + files
 
     def sort(self, key: str):
         if self.sort_key == key:
@@ -363,6 +365,40 @@ class FilePane(fltk.Fl_Group):
         self.set_cursor(row)
         self._update_footer()
         self.table.redraw()
+
+    # -- nested VFS (archives, later sftp-in-archive etc.) --------------------
+    def push_vfs(self, new_vfs: VFS, start_path: str):
+        e = self.current()
+        self.vfs_stack.append((self.vfs, self.path, e.name if e else None))
+        self.vfs = new_vfs
+        self.set_path(start_path)
+
+    def pop_vfs(self) -> bool:
+        if not self.vfs_stack:
+            return False
+        close = getattr(self.vfs, "close", None)
+        old_vfs, old_path, cursor = self.vfs_stack.pop()
+        self.vfs = old_vfs
+        self.set_path(old_path, cursor_name=cursor)
+        if close:
+            try:
+                close()
+            except OSError:
+                pass
+        return True
+
+    def enter_archive(self, name: str) -> bool:
+        from ..vfs.archive import ArchiveVFS
+        if self.vfs.scheme != "file":
+            self.flash("archives: local files only (for now)")
+            return False
+        try:
+            avfs = ArchiveVFS(paths.join(self.path, name))
+        except Exception as e:  # zipfile/tarfile raise various types
+            self.flash(f"archive: {e}")
+            return False
+        self.push_vfs(avfs, "/")
+        return True
 
     # -- inline rename (F2 / Shift+F6) ----------------------------------------
     def start_rename(self):

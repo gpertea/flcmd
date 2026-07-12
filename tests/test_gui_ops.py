@@ -201,3 +201,41 @@ def test_shift_f4_creates_and_edits(app, monkeypatch):
     assert os.path.exists(pane.path + "/notes.txt")
     assert pane.current().name == "notes.txt"
     assert calls == [["ed", pane.path + "/notes.txt"]]
+
+
+def test_enter_and_leave_archive(app):
+    import zipfile
+    pane = app.left
+    zp = pane.path + "/arc.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("inner/file.txt", "zipped")
+    pane.refresh(keep_cursor_name="arc.zip")
+    assert pane.current().name == "arc.zip"
+    app.dispatch("nav.open", pane)               # Enter opens the archive
+    assert pane.vfs.scheme == "arc"
+    assert {e.name for e in pane.view} == {"..", "inner"}
+    _cursor_to(pane, "inner")
+    app.dispatch("nav.open", pane)               # into inner/
+    assert [e.name for e in pane.view if not e.is_dir] == ["file.txt"]
+    app.dispatch("nav.up", pane)                 # back to archive root
+    app.dispatch("nav.up", pane)                 # pops out of the archive
+    assert pane.vfs.scheme == "file"
+    assert pane.current().name == "arc.zip"      # cursor back on the archive
+    os.remove(zp)
+
+
+def test_copy_out_of_archive_gui(app, monkeypatch):
+    import zipfile
+    from flcmd.ui import dialogs
+    pane, other = app.left, app.right
+    zp = pane.path + "/arc2.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("data.bin", "payload")
+    pane.refresh(keep_cursor_name="arc2.zip")
+    app.dispatch("nav.open", pane)
+    _cursor_to(pane, "data.bin")
+    monkeypatch.setattr(dialogs, "ask_dest", lambda *a, **k: (other.path, False))
+    app.dispatch("file.copy", pane)
+    assert open(other.path + "/data.bin").read() == "payload"
+    app.dispatch("nav.up", pane)
+    os.remove(zp)
