@@ -6,7 +6,7 @@ import fltk
 
 from .. import config, paths
 from ..ui import theme
-from . import images
+from .. import images
 
 ZOOMS = ("fit", "fitw", "100")
 

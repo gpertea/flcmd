@@ -43,4 +43,5 @@ config. Stage column shows when each lands.
 | Ctrl+B | Branch view (flatten subdirs) | 7 |
 
 Viewer (F3) internal keys: 1/2/3 text-bin-hex mode, W wrap, N/P next/prev
-file, F7 search, Esc/Q close -- matching TC's Lister where sensible.
+file, 4 image (z cycles fit/fit-width/100% zoom), F7 search, Esc/Q close --
+matching TC's Lister where sensible.

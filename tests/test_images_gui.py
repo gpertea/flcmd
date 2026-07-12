@@ -50,7 +50,7 @@ def _cursor_to(pane, name):
 
 
 def test_loader(imgdir, xdisplay):
-    from flcmd.panes import images
+    from flcmd import images
     img = images.load_full(imgdir + "/red.png")
     assert img and img.data_w() == 300 and img.data_h() == 200
     images.release_full(img)

@@ -188,3 +188,46 @@ def test_paged_hex_alignment(bwin):
     first = bwin.text.splitlines()[0]
     assert int(first[:8], 16) == bwin.win_off  # absolute file offsets shown
     bwin.do_action("mode:text")
+
+
+@pytest.fixture()
+def imgfile(tmp_path):
+    from PIL import Image
+    p = tmp_path / "photo.png"
+    Image.new("RGB", (400, 260), (120, 40, 220)).save(p)
+    return str(p).replace("\\", "/")
+
+
+def test_image_mode(xdisplay, isolated_config, imgfile, tmp_path):
+    import fltk
+    from flcmd.viewer import ViewerWindow
+    t = tmp_path / "t.txt"
+    t.write_text("plain text")
+    w = ViewerWindow([imgfile, str(t).replace("\\", "/")])
+    w.show()
+    for _ in range(5):
+        fltk.Fl.check()
+    try:
+        assert w.kind == "image" and w.iscroll.visible()
+        assert w._img.data_w() == 400
+        assert "image" in w.status.label() and "400 x 260" in w.status.label()
+        w.do_action("izoom:100")
+        assert w._img.w() == 400 and w._img.h() == 260
+        w.do_action("izoom:cycle")   # 100 -> fit
+        assert w.opts["izoom"] == "fit"
+        assert w._img.w() <= w.iscroll.w()
+        w.do_action("mode:hex")      # raw bytes of the png
+        assert w.kind == "hex" and w.disp.visible() and not w.iscroll.visible()
+        assert "89 50 4e 47" in w.buf.text()[:60]   # PNG magic
+        w.do_action("mode:image")    # back to image
+        assert w.kind == "image"
+        w.do_action("next")          # text file: image widgets hidden;
+        assert not w.iscroll.visible()
+        assert w.kind == "hex"       # the chosen text/hex mode is sticky
+        w.do_action("mode:text")
+        assert "plain text" in w.buf.text()
+        w.do_action("prev")
+        assert w.kind == "image"
+    finally:
+        w.hide()
+        fltk.Fl.check()

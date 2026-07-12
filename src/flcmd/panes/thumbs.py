@@ -9,7 +9,7 @@ import fltk
 
 from .. import config, paths
 from ..ui import theme
-from . import images
+from .. import images
 from .panel import table_click, table_handle
 
 _T = fltk.Fl_Table

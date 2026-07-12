@@ -4,7 +4,8 @@ persisted in flcmd.ini [viewer]. Files of ANY size open instantly: only a
 sliding window (window_mb, default 8 MB) is held in memory; the right-hand
 scrollbar maps the whole file, the window follows scrolling and search
 streams over the file on disk. Standalone: `flcmd-view FILE...` (n/p moves
-between files). Keys: 1 text, 3 hex, W wrap, A ascii, F7/Ctrl+F search,
+between files). Keys: 1 text, 3 hex, 4 image (auto for image files;
+z cycles fit/fit-width/100% zoom), W wrap, A ascii, F7/Ctrl+F search,
 F3 next, Shift+F3 previous, Ctrl+Home/End file start/end, Q/Esc close."""
 
 import os
@@ -13,14 +14,14 @@ import sys
 
 import fltk
 
-from .. import config, paths
+from .. import config, images, paths
 
 MENU_H, STATUS_H, FBAR_W = 25, 20, 16
 FONTS = {"courier": fltk.FL_COURIER, "helvetica": fltk.FL_HELVETICA,
          "times": fltk.FL_TIMES, "screen": fltk.FL_SCREEN}
 SIZES = (9, 10, 11, 12, 14, 16, 18, 20)
 DEFAULTS = {"font": "courier", "size": 12, "wrap": True, "ascii": False,
-            "mode": "text", "window_mb": 8}
+            "mode": "text", "window_mb": 8, "izoom": "fit"}
 HEXW = 77  # fixed hex line width incl newline: 10 + 48 + 2 + 16 + 1
 
 
@@ -64,6 +65,13 @@ class ViewerWindow(fltk.Fl_Double_Window):
                                       h - MENU_H - STATUS_H)
         self.fbar.type(fltk.FL_VERTICAL)
         self.fbar.callback(self._fbar_cb)
+        self.iscroll = fltk.Fl_Scroll(0, MENU_H, w, h - MENU_H - STATUS_H)
+        self.iscroll.color(fltk.fl_rgb_color(249, 252, 255))
+        self.ibox = fltk.Fl_Box(0, MENU_H, w, h - MENU_H - STATUS_H)
+        self.iscroll.end()
+        self.iscroll.hide()
+        self.kind = "text"      # per-file presentation: text | hex | image
+        self._img = None
         body.resizable(self.disp)
         body.end()
         self.status = fltk.Fl_Box(0, h - STATUS_H, w, STATUS_H)
@@ -87,9 +95,13 @@ class ViewerWindow(fltk.Fl_Double_Window):
         mb.add("&Edit/Find &Next\tF3", 0, cb, "next_match")
         mb.add("&Edit/Find &Previous\tShift+F3", 0, cb, "prev_match")
         mb.add("&Options/&Text mode\t1", 0, cb, "mode:text")
-        mb.add("&Options/&Hex mode\t3", 0, cb, "mode:hex", fltk.FL_MENU_DIVIDER)
+        mb.add("&Options/&Hex mode\t3", 0, cb, "mode:hex")
+        mb.add("&Options/&Image mode\t4", 0, cb, "mode:image",
+               fltk.FL_MENU_DIVIDER)
         mb.add("&Options/&Wrap lines\tw", 0, cb, "wrap")
         mb.add("&Options/&ASCII only\ta", 0, cb, "ascii", fltk.FL_MENU_DIVIDER)
+        for z, lbl in (("fit", "&Fit"), ("fitw", "Fit &Width"), ("100", "&100%")):
+            mb.add(f"&Options/Image &Zoom/{lbl}", 0, cb, f"izoom:{z}")
         for name in FONTS:
             mb.add(f"&Options/&Font/{name}", 0, cb, f"font:{name}")
         for s in SIZES:
@@ -118,6 +130,7 @@ class ViewerWindow(fltk.Fl_Double_Window):
         return self.fsize > self._win_bytes()
 
     def load_file(self):
+        self._img = None
         try:
             self.fsize = os.stat(self.path()).st_size
             err = None
@@ -125,18 +138,26 @@ class ViewerWindow(fltk.Fl_Double_Window):
             err = f"cannot open {self.path()}: {e}".encode()
             self.fsize = len(err)
         if err is not None:
+            self.kind = "text"
             self.win_off, self.data = 0, err
             self.render()
             return
-        self.jump_to(0)
+        if images.is_image(self.path()):
+            self._img = images.load_full(self.path())
+        self.kind = "image" if self._img else self.opts["mode"]
+        if self.kind == "image":
+            self.win_off, self.data = 0, b""
+            self.render()
+        else:
+            self.jump_to(0)
 
     def _load_window(self, off: int):
         wb = self._win_bytes()
         off = max(0, min(off, max(0, self.fsize - wb)))
-        if self.opts["mode"] == "hex":
+        if self.kind == "hex":
             off -= off % 16
         data = self._read(off, wb)
-        if self.opts["mode"] != "hex":
+        if self.kind != "hex":
             if off > 0:  # start at a whole line
                 i = data.find(b"\n", 0, 1 << 16)
                 if 0 <= i:
@@ -152,9 +173,43 @@ class ViewerWindow(fltk.Fl_Double_Window):
         self._load_window(off)
         self.render()
 
+    def _render_image(self):
+        img = self._img
+        sb = fltk.Fl.scrollbar_size()
+        aw = max(1, self.iscroll.w() - sb)
+        ah = max(1, self.iscroll.h() - sb)
+        iw, ih = img.data_w(), img.data_h()
+        z = self.opts["izoom"]
+        s = (1.0 if z == "100" else aw / iw if z == "fitw"
+             else min(aw / iw, ah / ih))
+        sw, sh = max(1, int(iw * s)), max(1, int(ih * s))
+        img.scale(sw, sh, 0, 1)
+        self.ibox.image(img)
+        self.ibox.copy_label("")
+        bw = max(sw, self.iscroll.w() - (sb if sh > self.iscroll.h() else 0))
+        bh = max(sh, self.iscroll.h() - (sb if sw > self.iscroll.w() else 0))
+        self.ibox.resize(self.iscroll.x(), self.iscroll.y(), bw, bh)
+        self.iscroll.scroll_to(0, 0)
+        self.label(f"flcmd-view - {self.path()}")
+        self._status()
+        self.redraw()
+
+    def resize(self, x, y, w, h):
+        super().resize(x, y, w, h)
+        if self.kind == "image" and self._img:
+            self._render_image()
+
     def render(self):
         o = self.opts
-        if o["mode"] == "hex":
+        if self.kind == "image":
+            self.disp.hide()
+            self.fbar.hide()
+            self.iscroll.show()
+            self._render_image()
+            return
+        self.iscroll.hide()
+        self.disp.show()
+        if self.kind == "hex":
             text = _hexdump(self.data, self.win_off)
         else:
             text = self.data.decode("utf-8", errors="replace")
@@ -164,7 +219,7 @@ class ViewerWindow(fltk.Fl_Double_Window):
         self.buf.text(text)
         self.disp.textfont(FONTS.get(o["font"], fltk.FL_COURIER))
         self.disp.textsize(int(o["size"]))
-        wrap = o["wrap"] and o["mode"] == "text"
+        wrap = o["wrap"] and self.kind == "text"
         self.disp.wrap_mode(
             fltk.Fl_Text_Display.WRAP_AT_BOUNDS if wrap
             else fltk.Fl_Text_Display.WRAP_NONE, 0)
@@ -186,13 +241,13 @@ class ViewerWindow(fltk.Fl_Double_Window):
 
     def _row_to_byte(self, row: int) -> int:
         """Approximate file byte offset of a 0-based display row."""
-        if self.opts["mode"] == "hex":
+        if self.kind == "hex":
             return self.win_off + row * 16
         total = max(1, self._total_rows())
         return self.win_off + int(len(self.data) * min(row, total) / total)
 
     def _byte_to_row(self, off: int) -> int:
-        if self.opts["mode"] == "hex":
+        if self.kind == "hex":
             return max(0, (off - self.win_off) // 16)
         ln = max(1, len(self.data))
         return int(self._total_rows() * max(0, off - self.win_off) / ln)
@@ -201,7 +256,7 @@ class ViewerWindow(fltk.Fl_Double_Window):
         if not self.visible():
             fltk.Fl.repeat_timeout(0.5, self._page_poll)
             return
-        if self.paged:
+        if self.paged and self.kind != "image":
             top = self.disp.scroll_row() - 1
             total, vis = self._total_rows(), self._vis_rows()
             if top <= 0 and self.win_off > 0:
@@ -243,10 +298,15 @@ class ViewerWindow(fltk.Fl_Double_Window):
     def _status(self):
         o = self.opts
         parts = [paths.basename(self.path()), f"{self.fsize:,} bytes",
-                 o["mode"], "ascii" if o["ascii"] else "utf-8"]
-        if o["wrap"] and o["mode"] == "text":
+                 self.kind]
+        if self.kind == "image" and self._img:
+            parts.append(f"{self._img.data_w()} x {self._img.data_h()}")
+            parts.append(f"zoom: {o['izoom']}")
+        elif self.kind != "image":
+            parts.append("ascii" if o["ascii"] else "utf-8")
+        if o["wrap"] and self.kind == "text":
             parts.append("wrap")
-        if self.paged:
+        if self.paged and self.kind != "image":
             parts.append(f"{100 * self.win_off / max(1, self.fsize):.0f}%")
         if len(self.files) > 1:
             parts.append(f"file {self.idx + 1}/{len(self.files)}")
@@ -274,9 +334,28 @@ class ViewerWindow(fltk.Fl_Double_Window):
             self._persist()
             self.render()
         elif action.startswith("mode:"):
-            o["mode"] = action.split(":")[1]
+            mode = action.split(":")[1]
+            if mode == "image":
+                if self._img is None and images.is_image(self.path()):
+                    self._img = images.load_full(self.path())
+                if self._img is None:
+                    return True  # not an image: ignore
+                self.kind = "image"
+                self.render()
+            else:
+                o["mode"] = self.kind = mode
+                self._persist()
+                self.jump_to(self.win_off)  # realign window for the new mode
+        elif action.startswith("izoom:"):
+            z = action.split(":")[1]
+            if z == "cycle":
+                order = ("fit", "fitw", "100")
+                z = order[(order.index(o["izoom"]) + 1) % 3] \
+                    if o["izoom"] in order else "fit"
+            o["izoom"] = z
             self._persist()
-            self.jump_to(self.win_off)  # realign window for the new mode
+            if self.kind == "image":
+                self._render_image()
         elif action.startswith(("font:", "size:")):
             key, val = action.split(":")
             o[key] = int(val) if key == "size" else val
@@ -325,6 +404,9 @@ class ViewerWindow(fltk.Fl_Double_Window):
         return -1
 
     def find(self, direction: int, from_start: bool = False):
+        if self.kind == "image":
+            self.status.copy_label("  no search in image mode")
+            return
         if not self.search_term:
             self._ask_search()
             return
@@ -348,14 +430,14 @@ class ViewerWindow(fltk.Fl_Double_Window):
 
     def _cursor_byte(self) -> int:
         pos = self.disp.insert_position()
-        if self.opts["mode"] == "hex":
+        if self.kind == "hex":
             return self.win_off + (pos // HEXW) * 16
         ln = max(1, len(self.text))
         return self.win_off + int(len(self.data) * pos / ln)
 
     def _show_hit(self, off: int, nlen: int):
         local = off - self.win_off
-        if self.opts["mode"] == "hex":
+        if self.kind == "hex":
             line = local // 16
             a = line * HEXW
             b = min(len(self.text), a + HEXW - 1)
@@ -383,6 +465,7 @@ class ViewerWindow(fltk.Fl_Double_Window):
     KEYS = {ord("q"): "close", ord("w"): "wrap", ord("a"): "ascii",
             ord("n"): "next", ord("p"): "prev",
             ord("1"): "mode:text", ord("3"): "mode:hex",
+            ord("4"): "mode:image", ord("z"): "izoom:cycle",
             fltk.FL_F + 7: "search"}
 
     def handle(self, event):
