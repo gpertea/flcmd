@@ -36,6 +36,15 @@ class LocalVFS(VFS):
         s = os.lstat(path)
         return _entry(paths.basename(path), s, st.S_ISLNK(s.st_mode))
 
+    def stat_follow(self, path: str) -> DirEntry:
+        return _entry(paths.basename(path), os.stat(path), False)
+
+    def readlink(self, path: str) -> str:
+        return os.readlink(path)  # raw target, relative links preserved
+
+    def symlink(self, target: str, path: str) -> None:
+        os.symlink(target, path)
+
     def open(self, path: str, mode: str = "rb"):
         return open(path, mode)
 

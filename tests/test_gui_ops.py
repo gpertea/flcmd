@@ -44,7 +44,7 @@ def test_copy_selection(app, monkeypatch):
     from flcmd.ui import dialogs
     pane, other = app.left, app.right
     pane.selected = {"alpha.txt", "bdir"}
-    monkeypatch.setattr(dialogs, "ask_text", lambda *a, **k: other.path)
+    monkeypatch.setattr(dialogs, "ask_dest", lambda *a, **k: (other.path, False))
     app.dispatch("file.copy", pane)
     assert open(other.path + "/alpha.txt").read() == "hello alpha\n"
     assert open(other.path + "/bdir/deep.txt").read() == "deep\n"
@@ -56,7 +56,7 @@ def test_move_cursor_item(app, monkeypatch):
     from flcmd.ui import dialogs
     pane, other = app.left, app.right
     _cursor_to(pane, "beta.log")
-    monkeypatch.setattr(dialogs, "ask_text", lambda *a, **k: other.path)
+    monkeypatch.setattr(dialogs, "ask_dest", lambda *a, **k: (other.path, False))
     app.dispatch("file.move", pane)
     assert not os.path.exists(pane.path + "/beta.log")
     assert os.path.getsize(other.path + "/beta.log") == 1000
@@ -79,7 +79,7 @@ def test_copy_creates_missing_dest(app, monkeypatch):
     pane, other = app.left, app.right
     _cursor_to(pane, "alpha.txt")
     dest = other.path + "/made/up"
-    monkeypatch.setattr(dialogs, "ask_text", lambda *a, **k: dest)
+    monkeypatch.setattr(dialogs, "ask_dest", lambda *a, **k: (dest, False))
     monkeypatch.setattr(dialogs, "confirm", lambda *a, **k: True)
     app.dispatch("file.copy", pane)
     assert open(dest + "/alpha.txt").read() == "hello alpha\n"
@@ -135,3 +135,26 @@ def test_props_dialog(app, monkeypatch):
     _cursor_to(pane, "alpha.txt")
     app.dispatch("file.props", pane)
     assert "alpha.txt" in shown[0] and "type: file" in shown[0]
+
+
+def test_auto_refresh_external_change(app):
+    import fltk
+    import time
+    pane = app.left
+    names = {e.name for e in pane.view}
+    assert "external.txt" not in names
+    with open(pane.path + "/external.txt", "w") as f:
+        f.write("surprise")
+    deadline = time.monotonic() + 4
+    while time.monotonic() < deadline:
+        fltk.Fl.wait(0.1)  # watcher timeout fires in here
+        if any(e.name == "external.txt" for e in pane.view):
+            break
+    assert any(e.name == "external.txt" for e in pane.view)
+    os.remove(pane.path + "/external.txt")
+    deadline = time.monotonic() + 4
+    while time.monotonic() < deadline:
+        fltk.Fl.wait(0.1)
+        if not any(e.name == "external.txt" for e in pane.view):
+            break
+    assert not any(e.name == "external.txt" for e in pane.view)

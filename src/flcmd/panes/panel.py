@@ -198,6 +198,7 @@ class FilePane(fltk.Fl_Group):
         self.selected: set[str] = set()
         self.dir_sizes: dict[str, int] = {}  # computed via Space / Ctrl+L
         self._rename: _RenameInput | None = None
+        self._mtime = 0.0  # dir mtime at last listing (external-change poll)
         self.sort_key = "name"
         self.sort_rev = False
         self._search = ""
@@ -222,6 +223,7 @@ class FilePane(fltk.Fl_Group):
     def refresh(self, keep_cursor_name: str | None = None):
         try:
             entries = self.vfs.listdir(self.path)
+            self._mtime = self.vfs.stat(self.path).mtime
         except OSError as e:
             self.flash(f"error: {e}")
             return
@@ -237,6 +239,18 @@ class FilePane(fltk.Fl_Group):
                     self.cursor = i
                     break
         self._sync()
+
+    def maybe_refresh(self):
+        """Auto-refresh when the directory changed externally (mtime poll).
+        Local panes only; skipped while an inline rename is open."""
+        if self._rename or self.vfs.scheme != "file":
+            return
+        try:
+            mt = self.vfs.stat(self.path).mtime
+        except OSError:
+            return
+        if mt != self._mtime:
+            self.refresh()
 
     def set_path(self, path: str, cursor_name: str | None = None):
         self.path = paths.canon(path)

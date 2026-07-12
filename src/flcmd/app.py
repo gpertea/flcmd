@@ -66,6 +66,8 @@ class App:
         self.win.resizable(self.tile)
         self.win.callback(self._win_cb)
         self.win.size_range(400, 300)
+        self._watching = True
+        fltk.Fl.add_timeout(1.0, self._watch_tick)
 
     def _build_menu(self):
         mb, cb = self.menubar, self._menu_cb
@@ -117,6 +119,13 @@ class App:
 
     def _fkey_cb(self, wid, action):
         self.dispatch(action, self.active())
+
+    def _watch_tick(self, data=None):
+        if not self._watching:
+            return
+        self.left.maybe_refresh()
+        self.right.maybe_refresh()
+        fltk.Fl.repeat_timeout(1.0, self._watch_tick)
 
     def _win_cb(self, wid):
         # ignore Esc; close button / Alt+F4 quit
@@ -230,7 +239,8 @@ class App:
         other = self.other(pane)
         verb = "Move" if move else "Copy"
         what = names[0] if len(names) == 1 else f"{len(names)} items"
-        dst = dialogs.ask_text(verb, f"{verb} {what} to:", other.path)
+        dst, follow = dialogs.ask_dest(verb, f"{verb} {what} to:", other.path,
+                                       "Follow symlinks (copy link targets)")
         if not dst:
             return
         dst = paths.canon(dst)
@@ -248,7 +258,7 @@ class App:
         ok = progress.run_operation(
             verb, f"{verb} {what} -> {dst}", ctl,
             lambda: ops.copy_op(pane.vfs, items, other.vfs, dst, ctl,
-                                move=move))
+                                move=move, follow_symlinks=follow))
         pane.refresh()
         other.refresh()
         pane.flash("cancelled" if ctl.error == "cancelled"
@@ -339,6 +349,7 @@ class App:
         self.left.table.take_focus()
 
     def quit(self):
+        self._watching = False
         self.cfg["window"] = {"w": self.win.w(), "h": self.win.h()}
         for side in ("left", "right"):
             p = getattr(self, side)

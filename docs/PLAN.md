@@ -20,8 +20,11 @@ tests). User review requested at milestones marked [REVIEW].
   Retry/Skip/Skip All error prompts; drop-in copies use the same engine
 - F2/Shift+F6 inline rename (in-place Fl_Input, Esc cancels); Alt+Enter
   properties; Ctrl+L occupied space; Space computes dir size
-- Still open: same-dir Shift+F5 copy-as, symlink-aware copy (links are
-  followed as files for now), background op queue
+- Symlinks are copied as links by default; "Follow symlinks" checkbox in
+  the copy/move dialog copies targets instead. Panes auto-refresh on
+  external changes (1s dir-mtime poll; local VFS only -- misses in-place
+  size changes of existing files, revisit with inotify later)
+- Still open: same-dir Shift+F5 copy-as, background op queue
 
 ## Stage 3 -- viewer + editor
 - viewer/: text (encodings, wrap, search), hex, image modes; F3 opens it;

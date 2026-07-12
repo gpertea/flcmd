@@ -70,5 +70,43 @@ def ask_text(title: str, label: str, default: str = "") -> str | None:
     return result[0]
 
 
+def ask_dest(title: str, label: str, default: str = "",
+             option_label: str | None = None,
+             option_default: bool = False) -> tuple[str | None, bool]:
+    """Destination prompt with an optional checkbox (e.g. follow symlinks).
+    Returns (text or None if cancelled, checkbox state)."""
+    result: list = [None]
+    w, ih = 460, 24
+    extra = 24 if option_label else 0
+    win = fltk.Fl_Double_Window(w, 96 + extra, title)
+    box = fltk.Fl_Box(10, 6, w - 20, 18, label)
+    box.align(fltk.FL_ALIGN_INSIDE | fltk.FL_ALIGN_LEFT)
+    box.labelsize(12)
+    inp = fltk.Fl_Input(10, 28, w - 20, ih)
+    inp.textsize(12)
+    inp.value(default)
+    chk = None
+    if option_label:
+        chk = fltk.Fl_Check_Button(10, 56, w - 20, 20, option_label)
+        chk.labelsize(12)
+        chk.value(1 if option_default else 0)
+
+    def ok(wid=None):
+        result[0] = inp.value()
+        win.hide()
+
+    inp.callback(ok)
+    inp.when(fltk.FL_WHEN_ENTER_KEY)
+    bok = fltk.Fl_Return_Button(w - 200, 62 + extra, 90, 24, "OK")
+    bok.callback(ok)
+    bcan = fltk.Fl_Button(w - 100, 62 + extra, 90, 24, "Cancel")
+    bcan.callback(lambda wid: win.hide())
+    win.end()
+    inp.take_focus()
+    inp.insert_position(0, len(default))
+    _run_modal(win)
+    return result[0], bool(chk.value()) if chk else option_default
+
+
 def confirm(title: str, message: str, yes: str = "OK") -> bool:
     return ask_buttons(title, message, [yes, "Cancel"]) == yes

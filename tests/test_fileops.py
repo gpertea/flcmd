@@ -150,3 +150,57 @@ def test_error_skip_all(vfs, tmp_path, dst):
     finally:
         for n in ("x.txt", "y.txt", "z.txt"):
             os.chmod(d / n, 0o644)
+
+
+@pytest.fixture()
+def linked(tmp_path):
+    d = tmp_path / "ln"
+    (d / "real").mkdir(parents=True)
+    (d / "real" / "f.txt").write_text("payload")
+    os.symlink("real/f.txt", d / "filelink")
+    os.symlink("real", d / "dirlink")
+    os.symlink("gone-target", d / "dangling")
+    return str(d).replace("\\", "/")
+
+
+def test_copy_links_as_links(vfs, linked, dst):
+    ctl = ScriptedCtl()
+    copy_op(vfs, [linked + "/filelink", linked + "/dirlink",
+                  linked + "/dangling"], vfs, dst, ctl)
+    assert os.readlink(dst + "/filelink") == "real/f.txt"
+    assert os.readlink(dst + "/dirlink") == "real"
+    assert os.readlink(dst + "/dangling") == "gone-target"
+    assert not os.path.exists(dst + "/real")  # targets NOT copied
+
+
+def test_copy_links_followed(vfs, linked, dst):
+    ctl = ScriptedCtl()
+    copy_op(vfs, [linked + "/filelink", linked + "/dirlink"], vfs, dst, ctl,
+            follow_symlinks=True)
+    assert not os.path.islink(dst + "/filelink")
+    assert open(dst + "/filelink").read() == "payload"
+    assert not os.path.islink(dst + "/dirlink")
+    assert open(dst + "/dirlink/f.txt").read() == "payload"
+
+
+def test_copy_tree_keeps_inner_links(vfs, linked, dst):
+    ctl = ScriptedCtl()
+    copy_op(vfs, [linked], vfs, dst, ctl)
+    assert os.readlink(dst + "/ln/filelink") == "real/f.txt"
+    assert open(dst + "/ln/filelink").read() == "payload"  # relative works
+    assert open(dst + "/ln/real/f.txt").read() == "payload"
+
+
+def test_move_link(vfs, linked, dst):
+    # force the copy+delete path (fast rename skipped via existing dst name)
+    ctl = ScriptedCtl()
+    copy_op(vfs, [linked + "/filelink"], vfs, dst, ctl, move=True)
+    assert not os.path.lexists(linked + "/filelink")
+    assert os.readlink(dst + "/filelink") == "real/f.txt"
+
+
+def test_delete_dir_symlink_not_recursive(vfs, linked):
+    ctl = ScriptedCtl()
+    delete_op(vfs, [linked + "/dirlink"], ctl)
+    assert not os.path.lexists(linked + "/dirlink")
+    assert os.path.exists(linked + "/real/f.txt")  # target untouched

@@ -40,6 +40,16 @@ class VFS(ABC):
     @abstractmethod
     def rename(self, old: str, new: str) -> None: ...
 
+    def stat_follow(self, path: str) -> DirEntry:
+        """stat resolving symlinks; backends without links return stat()."""
+        return self.stat(path)
+
+    def readlink(self, path: str) -> str:
+        raise OSError(f"{self.scheme}: symlinks not supported")
+
+    def symlink(self, target: str, path: str) -> None:
+        raise OSError(f"{self.scheme}: symlinks not supported")
+
     def is_dir(self, path: str) -> bool:
         try:
             return self.stat(path).is_dir

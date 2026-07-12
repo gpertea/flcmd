@@ -86,15 +86,23 @@ def run_in_thread(fn, ctl: OpControl) -> threading.Thread:
     return t
 
 
-def scan(vfs, items: list[str]) -> tuple[int, int]:
-    """(total_bytes, total_items) under the given paths; dirs count as items."""
+def scan(vfs, items: list[str], follow: bool = False) -> tuple[int, int]:
+    """(total_bytes, total_items) under the given paths; dirs count as items.
+    Symlinks count as zero-byte items unless follow is set."""
     bytes_ = items_ = 0
     stack = list(items)
     while stack:
         p = stack.pop()
         st = vfs.stat(p)
         items_ += 1
-        if st.is_dir and not st.is_link:
+        if st.is_link:
+            if not follow:
+                continue
+            try:
+                st = vfs.stat_follow(p)
+            except OSError:
+                continue  # dangling link
+        if st.is_dir:
             for e in vfs.listdir(p):
                 stack.append(paths.join(p, e.name))
         else:
@@ -154,16 +162,41 @@ def _copy_file(sv, sp, dv, dp, ctl: OpControl):
         cs(sp, dp)
 
 
-def _copy_tree(sv, sp, dv, dp, ctl, policy, move: bool):
+def _copy_link(sv, sp, dv, dp, ctl, policy, move: bool):
+    if dv.exists(dp):
+        if not _resolve_conflict(ctl, policy, dp):
+            ctl.item_done(sp)
+            return
+        if not _guard(ctl, policy, dp, lambda: dv.remove(dp)):
+            ctl.item_done(sp)
+            return
+
+    def relink():
+        dv.symlink(sv.readlink(sp), dp)
+    if _guard(ctl, policy, sp, relink) and move:
+        _guard(ctl, policy, sp, lambda: sv.remove(sp))
+    ctl.item_done(sp)
+
+
+def _copy_tree(sv, sp, dv, dp, ctl, policy, move: bool, follow: bool):
     st = sv.stat(sp)
-    if st.is_dir and not st.is_link:
+    if st.is_link:
+        if not follow:
+            _copy_link(sv, sp, dv, dp, ctl, policy, move)
+            return
+        try:
+            st = sv.stat_follow(sp)
+        except OSError:  # dangling: copy the link itself
+            _copy_link(sv, sp, dv, dp, ctl, policy, move)
+            return
+    if st.is_dir:
         if not dv.exists(dp):
             if not _guard(ctl, policy, dp, lambda: dv.mkdir(dp)):
                 return
         for e in sv.listdir(sp):
             ctl.check_cancel()
             _copy_tree(sv, paths.join(sp, e.name), dv, paths.join(dp, e.name),
-                       ctl, policy, move)
+                       ctl, policy, move, follow)
         if move:
             _guard(ctl, policy, sp, lambda: sv.rmdir(sp))
         ctl.item_done(sp)
@@ -178,8 +211,9 @@ def _copy_tree(sv, sp, dv, dp, ctl, policy, move: bool):
 
 
 def copy_op(sv, items: list[str], dv, dst_dir: str, ctl: OpControl,
-            move: bool = False):
-    """Copy/move items (full paths) into dst_dir. Call from a worker thread."""
+            move: bool = False, follow_symlinks: bool = False):
+    """Copy/move items (full paths) into dst_dir. Call from a worker thread.
+    Symlinks are recreated as links unless follow_symlinks is set."""
     if move and sv is dv:  # fast path: plain renames where possible
         rest = []
         for p in items:
@@ -196,12 +230,12 @@ def copy_op(sv, items: list[str], dv, dst_dir: str, ctl: OpControl,
         items = rest
         if not items:
             return
-    ctl.total_bytes, ctl.total_items = scan(sv, items)
+    ctl.total_bytes, ctl.total_items = scan(sv, items, follow_symlinks)
     policy: dict = {}
     for p in items:
         ctl.check_cancel()
         _copy_tree(sv, p, dv, paths.join(dst_dir, paths.basename(p)),
-                   ctl, policy, move)
+                   ctl, policy, move, follow_symlinks)
 
 
 def delete_op(vfs, items: list[str], ctl: OpControl):
