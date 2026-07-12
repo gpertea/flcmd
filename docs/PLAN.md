@@ -13,11 +13,15 @@ tests). User review requested at milestones marked [REVIEW].
 - keymap with TC defaults; config load/save
 - xvfb test fixture; smoke test: app opens, lists dir, navigates  [REVIEW]
 
-## Stage 2 -- file operations
-- ops engine: F5 copy, F6 move/rename, F7 mkdir, F8/Del delete, in worker
-  threads with progress dialog, cancel, overwrite/skip/rename-all conflicts
-- F2/Shift+F6 inline rename; Alt+Enter properties; Ctrl+L dir size
-- Error surfaces (permission, missing) with retry/skip
+## Stage 2 -- file operations [DONE]
+- ops/fileops.py engine: F5 copy, F6 move (fast rename + copy/delete
+  fallback), F7 mkdir (nested), F8/Del delete; worker thread + progress
+  dialog with cancel; Overwrite/Overwrite All/Skip/Skip All conflicts;
+  Retry/Skip/Skip All error prompts; drop-in copies use the same engine
+- F2/Shift+F6 inline rename (in-place Fl_Input, Esc cancels); Alt+Enter
+  properties; Ctrl+L occupied space; Space computes dir size
+- Still open: same-dir Shift+F5 copy-as, symlink-aware copy (links are
+  followed as files for now), background op queue
 
 ## Stage 3 -- viewer + editor
 - viewer/: text (encodings, wrap, search), hex, image modes; F3 opens it;

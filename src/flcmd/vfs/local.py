@@ -50,3 +50,10 @@ class LocalVFS(VFS):
 
     def rename(self, old: str, new: str) -> None:
         os.replace(old, new)
+
+    def copystat(self, src: str, dst: str) -> None:
+        import shutil
+        try:
+            shutil.copystat(src, dst)
+        except OSError:
+            pass  # permissions/times are best-effort

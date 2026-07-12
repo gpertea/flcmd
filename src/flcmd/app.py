@@ -1,13 +1,16 @@
 """Main application: dual panes, function-key bar, action dispatch."""
 
 import os
+import stat as st_mod
 import sys
+from datetime import datetime
 
 import fltk
 
-from . import config, paths, viewer
+from . import config, ops, paths, viewer
 from .keymap import Keymap
 from .panes import FilePane
+from .ui import dialogs, progress
 from .vfs import LocalVFS
 
 MENU_H = 25
@@ -19,8 +22,7 @@ FKEYS = [
     ("Alt+F4 Exit", "app.quit"),
 ]
 NOT_YET = {
-    "file.edit": "stage 3", "file.copy": "stage 2", "file.move": "stage 2",
-    "file.mkdir": "stage 2", "file.delete": "stage 2",
+    "file.edit": "stage 3",
 }
 
 
@@ -68,6 +70,10 @@ class App:
     def _build_menu(self):
         mb, cb = self.menubar, self._menu_cb
         inactive = fltk.FL_MENU_INACTIVE
+        mb.add("&Files/Re&name\tF2", 0, cb, "file.rename")
+        mb.add("&Files/&Properties\tAlt+Enter", 0, cb, "file.props")
+        mb.add("&Files/Calculate &Occupied Space\tCtrl+L", 0, cb,
+               "pane.dirsize", fltk.FL_MENU_DIVIDER)
         mb.add("&Files/&Quit\tAlt+F4", 0, cb, "app.quit")
         mb.add("&Mark/Select &All\tCtrl+A", 0, cb, "sel.all")
         mb.add("&Mark/&Unselect All\tCtrl+Shift+A", 0, cb, "sel.none")
@@ -173,9 +179,6 @@ class App:
     def _act_sel_toggle(self, pane):
         pane.toggle_select(advance=True)
 
-    def _act_sel_toggle_space(self, pane):
-        pane.toggle_select(advance=False)
-
     def _act_sel_all(self, pane):
         pane.select_all(True)
 
@@ -199,6 +202,126 @@ class App:
     def _act_sort_ext(self, pane): pane.sort("ext")
     def _act_sort_size(self, pane): pane.sort("size")
     def _act_sort_date(self, pane): pane.sort("date")
+
+    # -- file operations (stage 2) -------------------------------------------
+    def _sources(self, pane) -> list[str]:
+        """Selected names in view order, else the cursor item."""
+        names = [e.name for e in pane.view if e.name in pane.selected]
+        if not names:
+            e = pane.current()
+            if not e or e.name == "..":
+                return []
+            names = [e.name]
+        return names
+
+    @staticmethod
+    def _ensure_dir(vfs, d: str) -> None:
+        if vfs.is_dir(d):
+            return
+        parent = paths.parent(d)
+        if parent != d:
+            App._ensure_dir(vfs, parent)
+        vfs.mkdir(d)
+
+    def _copy_move(self, pane, move: bool):
+        names = self._sources(pane)
+        if not names:
+            return
+        other = self.other(pane)
+        verb = "Move" if move else "Copy"
+        what = names[0] if len(names) == 1 else f"{len(names)} items"
+        dst = dialogs.ask_text(verb, f"{verb} {what} to:", other.path)
+        if not dst:
+            return
+        dst = paths.canon(dst)
+        if not other.vfs.is_dir(dst):
+            if not dialogs.confirm(verb, f"Create directory?\n{dst}",
+                                   yes="Create"):
+                return
+            try:
+                self._ensure_dir(other.vfs, dst)
+            except OSError as e:
+                pane.flash(f"mkdir: {e}")
+                return
+        items = [paths.join(pane.path, n) for n in names]
+        ctl = ops.OpControl()
+        ok = progress.run_operation(
+            verb, f"{verb} {what} -> {dst}", ctl,
+            lambda: ops.copy_op(pane.vfs, items, other.vfs, dst, ctl,
+                                move=move))
+        pane.refresh()
+        other.refresh()
+        pane.flash("cancelled" if ctl.error == "cancelled"
+                   else f"{verb.lower()}: done" if ok else "failed")
+
+    def _act_file_copy(self, pane):
+        self._copy_move(pane, move=False)
+
+    def _act_file_move(self, pane):
+        self._copy_move(pane, move=True)
+
+    def _act_file_mkdir(self, pane):
+        name = dialogs.ask_text("New directory", "Create directory:")
+        if not name:
+            return
+        try:
+            self._ensure_dir(pane.vfs, paths.join(pane.path, name))
+        except OSError as e:
+            pane.flash(f"mkdir: {e}")
+            return
+        pane.refresh(keep_cursor_name=name.strip("/").split("/")[0])
+        self.other(pane).refresh()
+
+    def _act_file_delete(self, pane):
+        names = self._sources(pane)
+        if not names:
+            return
+        shown = "\n".join(names[:8]) + ("\n..." if len(names) > 8 else "")
+        if not dialogs.confirm("Delete",
+                               f"Delete {len(names)} item(s)?\n{shown}",
+                               yes="Delete"):
+            return
+        items = [paths.join(pane.path, n) for n in names]
+        ctl = ops.OpControl()
+        progress.run_operation("Delete", f"Delete {len(names)} item(s)", ctl,
+                               lambda: ops.delete_op(pane.vfs, items, ctl))
+        pane.refresh()
+        other = self.other(pane)
+        if other.path == pane.path:
+            other.refresh()
+
+    def _act_file_rename(self, pane):
+        pane.start_rename()
+
+    def _act_file_props(self, pane):
+        e = pane.current()
+        if not e or e.name == "..":
+            return
+        try:
+            st = pane.vfs.stat(paths.join(pane.path, e.name))
+        except OSError as ex:
+            pane.flash(str(ex))
+            return
+        kind = "link" if st.is_link else "directory" if st.is_dir else "file"
+        size = pane.dir_sizes.get(e.name, st.size) if st.is_dir else st.size
+        mtime = datetime.fromtimestamp(st.mtime).strftime("%Y-%m-%d %H:%M:%S")
+        dialogs.ask_buttons(
+            "Properties",
+            f"{e.name}\ntype: {kind}\nsize: {size:,} bytes\n"
+            f"modified: {mtime}\nmode: {st_mod.filemode(st.mode)}",
+            ["OK"])
+
+    def _act_pane_dirsize(self, pane):
+        names = self._sources(pane)
+        if not names:
+            return
+        total = pane.calc_sizes(names)
+        dialogs.ask_buttons(
+            "Occupied space",
+            f"{total:,} bytes in {len(names)} item(s)", ["OK"])
+
+    def _act_sel_toggle_space(self, pane):
+        pane.toggle_select(advance=False, du=True)
 
     def _act_file_view(self, pane):
         e = pane.current()

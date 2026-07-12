@@ -1,8 +1,6 @@
 """File pane: path header + file table + selection footer.
 All keys resolve through the app keymap via the dispatch callable."""
 
-import os
-import shutil
 import time
 from datetime import datetime
 from fnmatch import fnmatch
@@ -21,14 +19,6 @@ ROW_H = 18
 COL_EXT, COL_SIZE, COL_DATE = 44, 84, 104
 
 _UP = DirEntry(name="..", is_dir=True)
-
-
-def fmt_size(e: DirEntry) -> str:
-    if e.name == "..":
-        return "<UP>"
-    if e.is_dir:
-        return "<DIR>"
-    return f"{e.size:,}"
 
 
 def fmt_date(e: DirEntry) -> str:
@@ -166,10 +156,31 @@ class FileTable(fltk.Fl_Table_Row):
         elif c == 1:
             fltk.fl_draw(e.ext, x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT)
         elif c == 2:
-            fltk.fl_draw(fmt_size(e), x + 2, y, w - 6, h, fltk.FL_ALIGN_RIGHT)
+            fltk.fl_draw(self.pane.size_text(e), x + 2, y, w - 6, h,
+                         fltk.FL_ALIGN_RIGHT)
         else:
             fltk.fl_draw(fmt_date(e), x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT)
         fltk.fl_pop_clip()
+
+
+class _RenameInput(fltk.Fl_Input):
+    def __init__(self, x, y, w, h, pane, old: str):
+        super().__init__(x, y, w, h)
+        self.pane, self.old = pane, old
+        self.textsize(12)
+        self.value(old)
+        self.when(fltk.FL_WHEN_ENTER_KEY)
+        self.callback(lambda wid: pane.end_rename(self.value()))
+
+    def handle(self, event):
+        if event == fltk.FL_KEYDOWN and fltk.Fl.event_key() == fltk.FL_Escape:
+            self.pane.end_rename(None)
+            return 1
+        if event == fltk.FL_UNFOCUS:
+            r = super().handle(event)
+            self.pane.end_rename(None)
+            return r
+        return super().handle(event)
 
 
 class FilePane(fltk.Fl_Group):
@@ -185,6 +196,8 @@ class FilePane(fltk.Fl_Group):
         self.view: list[DirEntry] = []      # what the table shows (.. + entries)
         self.cursor = 0
         self.selected: set[str] = set()
+        self.dir_sizes: dict[str, int] = {}  # computed via Space / Ctrl+L
+        self._rename: _RenameInput | None = None
         self.sort_key = "name"
         self.sort_rev = False
         self._search = ""
@@ -228,6 +241,7 @@ class FilePane(fltk.Fl_Group):
     def set_path(self, path: str, cursor_name: str | None = None):
         self.path = paths.canon(path)
         self.selected.clear()
+        self.dir_sizes.clear()
         self.cursor = 0
         self.refresh(keep_cursor_name=cursor_name)
 
@@ -288,9 +302,11 @@ class FilePane(fltk.Fl_Group):
         else:
             self.set_cursor(self.cursor + delta)
 
-    def toggle_select(self, advance=False):
+    def toggle_select(self, advance=False, du=False):
         e = self.current()
         if e and e.name != "..":
+            if du and e.is_dir and e.name not in self.dir_sizes:
+                self.dir_sizes[e.name] = self._du(paths.join(self.path, e.name))
             self.selected.symmetric_difference_update({e.name})
         if advance:
             self.move_cursor(delta=1)
@@ -334,6 +350,44 @@ class FilePane(fltk.Fl_Group):
         self._update_footer()
         self.table.redraw()
 
+    # -- inline rename (F2 / Shift+F6) ----------------------------------------
+    def start_rename(self):
+        e = self.current()
+        if not e or e.name == ".." or self._rename:
+            return
+        self.set_cursor(self.cursor)  # ensure the row is scrolled into view
+        t = self.table
+        y = t.y() + HDR_H + (self.cursor - t.top_row()) * ROW_H
+        inp = _RenameInput(t.x() + 2, y, t.col_width(0) + t.col_width(1),
+                           ROW_H + 4, self, e.name)
+        self.add(inp)
+        self._rename = inp
+        inp.show()
+        inp.take_focus()
+        self.redraw()
+
+    def end_rename(self, newname: str | None):
+        inp, self._rename = self._rename, None
+        if not inp:
+            return
+        old = inp.old
+        self.remove(inp)
+        fltk.Fl.delete_widget(inp)
+        self.table.take_focus()
+        if newname and newname != old:
+            try:
+                self.vfs.rename(paths.join(self.path, old),
+                                paths.join(self.path, newname))
+            except OSError as ex:
+                self.flash(f"rename: {ex}")
+                self.refresh()
+                return
+            if old in self.selected:
+                self.selected.discard(old)
+                self.selected.add(newname)
+            self.refresh(keep_cursor_name=newname)
+        self.redraw()
+
     # -- drag and drop -------------------------------------------------------
     def start_drag(self):
         if not isinstance(self.vfs, LocalVFS):
@@ -363,6 +417,8 @@ class FilePane(fltk.Fl_Group):
             w = fltk.Fl.next_window(w)
 
     def on_drop(self, text: str):
+        from .. import ops
+        from ..ui import dialogs, progress
         files = []
         for line in text.splitlines():
             line = line.strip()
@@ -376,22 +432,14 @@ class FilePane(fltk.Fl_Group):
         if not isinstance(self.vfs, LocalVFS):
             self.flash("drop: only local targets for now")
             return
-        if fltk.fl_choice(f"Copy {len(files)} item(s) to\n{self.path} ?",
-                          "Cancel", "Copy", None) != 1:
+        if not dialogs.confirm("Copy", f"Copy {len(files)} item(s) to\n"
+                               f"{self.path} ?", yes="Copy"):
             return
-        errs = []
-        for f in files:
-            try:
-                dst = paths.join(self.path, paths.basename(f))
-                if os.path.isdir(f):
-                    shutil.copytree(f, dst)
-                else:
-                    shutil.copy2(f, dst)
-            except OSError as ex:
-                errs.append(f"{paths.basename(f)}: {ex}")
+        ctl = ops.OpControl()
+        progress.run_operation(
+            "Copy", f"Copy {len(files)} item(s) -> {self.path}", ctl,
+            lambda: ops.copy_op(self.vfs, files, self.vfs, self.path, ctl))
         self.refresh()
-        self.flash(f"copied {len(files) - len(errs)} item(s)"
-                   + (f", {len(errs)} failed" if errs else ""))
 
     # -- keyboard ------------------------------------------------------------
     _NAV = {
@@ -433,19 +481,62 @@ class FilePane(fltk.Fl_Group):
                 break
         self._update_footer()
 
-    # -- footer ---------------------------------------------------------------
+    # -- sizes / footer -------------------------------------------------------
+    def entry_bytes(self, e: DirEntry) -> int:
+        return self.dir_sizes.get(e.name, 0) if e.is_dir else e.size
+
+    def size_text(self, e: DirEntry) -> str:
+        if e.name == "..":
+            return "<UP>"
+        if e.is_dir:
+            n = self.dir_sizes.get(e.name)
+            return "<DIR>" if n is None else f"{n:,}"
+        return f"{e.size:,}"
+
+    def _du(self, p: str) -> int:
+        total = 0
+        stack = [p]
+        while stack:
+            d = stack.pop()
+            try:
+                entries = self.vfs.listdir(d)
+            except OSError:
+                continue
+            for e in entries:
+                if e.is_dir and not e.is_link:
+                    stack.append(paths.join(d, e.name))
+                else:
+                    total += e.size
+        return total
+
+    def calc_sizes(self, names: list[str]) -> int:
+        """Compute (and remember) sizes for the given entries; returns total."""
+        total = 0
+        for e in self.view:
+            if e.name not in names or e.name == "..":
+                continue
+            if e.is_dir:
+                if e.name not in self.dir_sizes:
+                    self.dir_sizes[e.name] = self._du(paths.join(self.path, e.name))
+                total += self.dir_sizes[e.name]
+            else:
+                total += e.size
+        self._update_footer()
+        self.table.redraw()
+        return total
+
     def _update_footer(self):
         if self._search:
             self.footer.copy_label(f" search: {self._search}")
             return
-        files = [e for e in self.view if not e.is_dir]
-        sel = [e for e in files if e.name in self.selected]
-        seldirs = sum(1 for e in self.view if e.is_dir and e.name in self.selected)
-        total, ssel = sum(e.size for e in files), sum(e.size for e in sel)
-        ndirs = sum(1 for e in self.view if e.is_dir and e.name != "..")
+        real = [e for e in self.view if e.name != ".."]
+        files = [e for e in real if not e.is_dir]
+        sel = [e for e in real if e.name in self.selected]
+        total = sum(self.entry_bytes(e) for e in real)
+        ssel = sum(self.entry_bytes(e) for e in sel)
         self.footer.copy_label(
-            f" {ssel:,} / {total:,} bytes in {len(sel)+seldirs} / "
-            f"{len(files)+ndirs} selected")
+            f" {ssel:,} / {total:,} bytes in {len(sel)} / "
+            f"{len(real)} selected")
 
     def set_active(self, active: bool):
         self.header.color(theme.PATH_ACTIVE if active else theme.PATH_IDLE)

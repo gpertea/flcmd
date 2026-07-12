@@ -57,8 +57,11 @@ DEFAULTS = {
     "file.edit": ["F4"],
     "file.copy": ["F5"],
     "file.move": ["F6"],
+    "file.rename": ["F2", "Shift+F6"],
     "file.mkdir": ["F7"],
     "file.delete": ["F8", "Delete"],
+    "file.props": ["Alt+Enter"],
+    "pane.dirsize": ["Ctrl+L"],
     "app.quit": ["Alt+F4"],
 }
 
