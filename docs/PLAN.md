@@ -80,6 +80,17 @@ tests). User review requested at milestones marked [REVIEW].
   (packer) first, WDX next, WFX later; backslash path shim; Windows-first,
   same C API for native .so on Linux  [REVIEW]
 
+## Stage 6.5 -- shortcuts + UI polish [DONE]
+- Panel headers: draggable-divider bevel continues into the directory
+  label strip; active pane is app-owned (survives dialog focus-steal)
+- Folder shortcuts menu (double-click panel header): multi-level, add
+  current dir, works for sftp:// locations; JSON store in config dir
+- Locations toolbar (Show menu, on by default): drop dirs to add
+  buttons, left-click chdir active pane, right-click edit/delete
+- Dialogs: auto-width labels (no truncation), '@' escaped everywhere
+- Still open: bookmark tree editor UI ('* Configure...' just shows the
+  file path for now), toolbar button reordering
+
 ## Stage 7 -- power features + polish
 - Tabs (Ctrl+T/W/Tab), command line bar with history, Alt+F7 search,
   Ctrl+B branch view, directory hotlist (Ctrl+D), Alt+F1/F2 drive/root list

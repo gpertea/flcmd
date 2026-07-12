@@ -38,6 +38,7 @@ config. Stage column shows when each lands.
 | Ctrl+D | Directory hotlist | 7 |
 | Ctrl+Q | Quick view panel (image preview) | done |
 | Ctrl+Shift+F1 | Thumbnail view toggle | done |
+| Dbl-click panel header | Folder shortcuts (bookmarks) menu | done |
 | Alt+F1 / Alt+F2 | Left/right drive-root menu | 7 |
 | Alt+F7 | Find files | 7 |
 | Ctrl+B | Branch view (flatten subdirs) | 7 |
