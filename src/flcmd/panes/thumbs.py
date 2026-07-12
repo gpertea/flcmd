@@ -129,6 +129,9 @@ class ThumbView(fltk.Fl_Table):
                 img = None
             self._cache[name] = img if img else False
             budget -= 1
+        if len(self._cache) > 800:  # bound memory on huge directories
+            for k in list(self._cache)[:200]:
+                del self._cache[k]
         self.redraw()
         if self._pending and self.visible():
             fltk.Fl.repeat_timeout(0.02, self._load_tick)

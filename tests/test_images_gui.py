@@ -124,3 +124,27 @@ def test_quickview_focus_stays(app):
     app.dispatch("pane.switch", pane)  # must NOT focus the preview pane
     assert app.active() is pane
     app.dispatch("pane.quickview", pane)
+
+
+def test_modes_survive_resize(app):
+    import fltk
+    pane, other = app.left, app.right
+    app.dispatch("pane.thumbs", pane)
+    app.dispatch("pane.quickview", pane)  # right pane -> preview
+    _cursor_to(pane, "red.png")
+    _pump(0.3)
+    cols_before = pane.thumbs._cols
+    w_before = other.preview._img.w()
+    # simulate a divider drag: left pane shrinks, preview pane grows
+    # (pyfltk lacks Fl_Tile's 4-arg position(); resize the children directly)
+    lw = pane.w()
+    pane.resize(pane.x(), pane.y(), lw - 220, pane.h())
+    other.resize(pane.x() + lw - 220, other.y(), other.w() + 220, other.h())
+    app.tile.init_sizes()
+    app.tile.redraw()
+    for _ in range(5):
+        fltk.Fl.check()
+    assert pane.thumbs.w() == pane.w() < lw   # thumbs followed the divider
+    assert pane.thumbs._cols <= cols_before
+    _pump(0.2)
+    assert other.preview._img.w() >= w_before  # fit zoom re-applied, wider
