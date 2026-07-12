@@ -185,7 +185,7 @@ class ThumbView(fltk.Fl_Table):
         if name != e.name:
             name += ".."
         fltk.fl_draw(name, x + 4, y + PAD + ts, w - 8, LABEL_H,
-                     fltk.FL_ALIGN_CENTER)
+                     fltk.FL_ALIGN_CENTER, None, 0)
         fltk.fl_pop_clip()
 
     def _draw_folder(self, x, y, ts, up: bool):

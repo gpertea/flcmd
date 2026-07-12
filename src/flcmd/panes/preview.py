@@ -5,7 +5,7 @@ persisted in flcmd.ini [preview] and re-applied on any pane resize."""
 import fltk
 
 from .. import config, paths
-from ..ui import theme
+from ..ui import esc, theme
 from .. import images
 
 ZOOMS = ("fit", "fitw", "100")
@@ -48,7 +48,7 @@ class PreviewView(fltk.Fl_Group):
             self._msg = f"[{name}]"
         else:
             self._msg = name or "no file"
-        self.pane.header.copy_label(f" Preview: {name}" if name else " Preview")
+        self.pane.header.copy_label(esc(f" Preview: {name}") if name else " Preview")
         self._apply()
 
     def _zoom_scale(self, iw: int, ih: int, aw: int, ah: int) -> float:
@@ -63,10 +63,10 @@ class PreviewView(fltk.Fl_Group):
         aw, ah = self.scroll.w() - sb, self.scroll.h() - sb
         if self._img is None:
             self.box.image(None)
-            self.box.copy_label(self._msg)
+            self.box.copy_label(esc(self._msg))
             self.box.resize(self.scroll.x(), self.scroll.y(),
                             self.scroll.w(), self.scroll.h())
-            self.pane.footer.copy_label(f" {self._msg}")
+            self.pane.footer.copy_label(esc(f" {self._msg}"))
         else:
             iw, ih = self._img.data_w(), self._img.data_h()
             s = self._zoom_scale(iw, ih, max(1, aw), max(1, ah))

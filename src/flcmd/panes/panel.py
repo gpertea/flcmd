@@ -8,7 +8,7 @@ from fnmatch import fnmatch
 import fltk
 
 from .. import dnd, paths
-from ..ui import theme
+from ..ui import esc, theme
 from ..vfs import DirEntry, LocalVFS, VFS
 
 _T = fltk.Fl_Table
@@ -185,9 +185,9 @@ class FileTable(fltk.Fl_Table_Row):
             nm = e.name if e.is_dir else paths.splitext(e.name)[0]
             if e.is_dir and e.name != "..":
                 nm = "[" + nm + "]"
-            fltk.fl_draw(nm, x + 4, y, w - 8, h, fltk.FL_ALIGN_LEFT)
+            fltk.fl_draw(nm, x + 4, y, w - 8, h, fltk.FL_ALIGN_LEFT, None, 0)
         elif c == 1:
-            fltk.fl_draw(e.ext, x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT)
+            fltk.fl_draw(e.ext, x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT, None, 0)
         elif c == 2:
             fltk.fl_draw(self.pane.size_text(e), x + 2, y, w - 6, h,
                          fltk.FL_ALIGN_RIGHT)
@@ -326,7 +326,7 @@ class FilePane(fltk.Fl_Group):
         self.table._autosize_cols()
         if self.thumbs:
             self.thumbs.relayout()
-        self.header.copy_label(" " + self.vfs.display(self.path))
+        self.header.copy_label(" " + esc(self.vfs.display(self.path)))
         self._update_footer()
         self.table.redraw()
 
@@ -645,7 +645,7 @@ class FilePane(fltk.Fl_Group):
 
     def _update_footer(self):
         if self._search:
-            self.footer.copy_label(f" search: {self._search}")
+            self.footer.copy_label(esc(f" search: {self._search}"))
             return
         real = [e for e in self.view if e.name != ".."]
         files = [e for e in real if not e.is_dir]
@@ -661,5 +661,5 @@ class FilePane(fltk.Fl_Group):
         self.header.redraw()
 
     def flash(self, msg: str):
-        self.footer.copy_label(" " + msg)
+        self.footer.copy_label(" " + esc(msg))
         self.footer.redraw()

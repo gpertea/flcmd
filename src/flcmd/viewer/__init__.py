@@ -15,6 +15,7 @@ import sys
 import fltk
 
 from .. import config, images, paths
+from ..ui import esc
 
 MENU_H, STATUS_H, FBAR_W = 25, 20, 16
 FONTS = {"courier": fltk.FL_COURIER, "helvetica": fltk.FL_HELVETICA,
@@ -312,7 +313,7 @@ class ViewerWindow(fltk.Fl_Double_Window):
             parts.append(f"file {self.idx + 1}/{len(self.files)}")
         if self.search_term:
             parts.append(f"search: {self.search_term}")
-        self.status.copy_label("  " + "   ".join(str(p) for p in parts))
+        self.status.copy_label(esc("  " + "   ".join(str(p) for p in parts)))
 
     def _persist(self):
         config.update("viewer", self.opts)
@@ -421,7 +422,7 @@ class ViewerWindow(fltk.Fl_Double_Window):
                 hit = -1 if direction > 0 else hit
         self._status()
         if hit < 0:
-            self.status.copy_label(f"  not found: {self.search_term}")
+            self.status.copy_label(esc(f"  not found: {self.search_term}"))
             return
         if not (self.win_off <= hit < self.win_off + len(self.data) - len(needle)):
             self._load_window(hit - self._win_bytes() // 2)

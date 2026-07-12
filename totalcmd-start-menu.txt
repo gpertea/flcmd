@@ -1,0 +1,14 @@
+Let's implement / test Total Commander "Start" menu in this app - which is like a "user menu" where
+we can run custom scripts on the current selection, using parameters like %s, %P etc. - check the Total Commander documentation about how that
+works, I want the same parameter naming convention they used; the default execution pwd is always the current path in that panel when the
+Start command is invoked (so no need to pass it as a parameter). I also like that we can assign keyboard shortcuts for those commands - but Total Commander
+limited that to only Ctrl+Alt(+Shift)+Fn key combinations -- I guess to prevent conflicts with their built-in shortcuts - but I would like that limitation lifted,
+the user should be able to set up any modifier-key shortcut - except those that indeed conflict with existing builtin shortcuts, but anyway let's not limit to
+specific combinations and/or just Fn keys.
+
+To help with the Windows port, for which I want better, built-in support for MSYS2/bash scripts  - in Total Commander I had to implement my own shim to be able to run MSYS2 bash scripts, by doing the 
+following for their Start menu entry setup dialog (see totalcmd-run-MSYS2-scripts.png screenshot):
+
+Command: C:\Prog\msys2\usr\bin\mintty.exe
+Parameters: --nodaemon -h always -e C:\Prog\msys2\usr\bin\env.exe MSYSTEM=UCRT64 CHERE_INVOKING=1 TC_DBG=1 C:\Prog\msys2\usr\bin\bash.exe --login /d/util/ffmpeg_reverse_video.sh %s
+Start path: (leave empty - which means whatever current directory is in the current focus panel)
