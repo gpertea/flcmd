@@ -152,7 +152,7 @@ class ThumbView(fltk.Fl_Table):
             return
         e = view[idx]
         cursor = idx == self.pane.cursor
-        focused = fltk.Fl.focus() == self
+        focused = self.pane.is_active
         selected = e.name in self.pane.selected
         fltk.fl_color(theme.CURSOR_BG if (cursor and focused) else theme.ROW_BG)
         fltk.fl_rectf(x, y, w, h)

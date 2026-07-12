@@ -43,10 +43,11 @@ def table_click(tbl):
 
 
 def table_handle(tbl, event, sup) -> int:
-    if event in (fltk.FL_FOCUS, fltk.FL_UNFOCUS):
-        tbl.pane.set_active(event == fltk.FL_FOCUS)
-        tbl.redraw()
+    if event == fltk.FL_FOCUS:
+        tbl.pane.dispatch("pane.activate", tbl.pane)
         return 1
+    if event == fltk.FL_UNFOCUS:
+        return 1  # active state is app-owned; don't dim on dialog focus-steal
     if event == fltk.FL_PUSH and fltk.Fl.event_button() == fltk.FL_LEFT_MOUSE:
         tbl._push_xy = (fltk.Fl.event_x(), fltk.Fl.event_y())
         tbl._dragging = False
@@ -168,7 +169,7 @@ class FileTable(fltk.Fl_Table_Row):
             return
         e = self.pane.view[r]
         cursor = r == self.pane.cursor
-        focused = fltk.Fl.focus() == self
+        focused = self.pane.is_active
         fltk.fl_push_clip(x, y, w, h)
         if cursor and focused:
             fltk.fl_color(theme.CURSOR_BG)
@@ -194,6 +195,62 @@ class FileTable(fltk.Fl_Table_Row):
         else:
             fltk.fl_draw(fmt_date(e), x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT)
         fltk.fl_pop_clip()
+
+
+class PaneHeader(fltk.Fl_Box):
+    """Directory label at the top of a pane. Draws a raised divider bevel on
+    its right edge (visually continuing the tile divider), shows the active
+    pane in a darker steel-blue, is a drag source for the current dir, and
+    opens the folder-shortcuts (bookmarks) menu on double-click."""
+
+    def __init__(self, x, y, w, h, pane):
+        super().__init__(x, y, w, h)
+        self.pane = pane
+        self.box(fltk.FL_FLAT_BOX)
+        self.color(theme.PATH_IDLE)
+        self.labelfont(fltk.FL_HELVETICA_BOLD)
+        self.labelsize(12)
+        self._push_xy = None
+        self._dragging = False
+
+    def draw(self):
+        c = theme.PATH_ACTIVE if self.pane.is_active else theme.PATH_IDLE
+        fltk.fl_color(c)
+        fltk.fl_rectf(self.x(), self.y(), self.w(), self.h())
+        # directory text (drawn without symbol parsing)
+        fltk.fl_color(theme.TEXT)
+        fltk.fl_font(fltk.FL_HELVETICA_BOLD, 12)
+        fltk.fl_push_clip(self.x(), self.y(), self.w() - 4, self.h())
+        fltk.fl_draw(self.label() or "", self.x() + 4, self.y(),
+                     self.w() - 8, self.h(), fltk.FL_ALIGN_LEFT, None, 0)
+        fltk.fl_pop_clip()
+        # raised divider bevel on the right edge (continues the tile divider)
+        rx = self.x() + self.w() - 1
+        fltk.fl_color(fltk.FL_DARK3)
+        fltk.fl_line(rx, self.y(), rx, self.y() + self.h() - 1)
+        fltk.fl_color(fltk.FL_LIGHT3)
+        fltk.fl_line(rx - 1, self.y(), rx - 1, self.y() + self.h() - 1)
+
+    def handle(self, event):
+        if event == fltk.FL_PUSH and fltk.Fl.event_button() == fltk.FL_LEFT_MOUSE:
+            self.pane.dispatch("pane.activate", self.pane)
+            if fltk.Fl.event_clicks():  # double-click -> bookmarks menu
+                self.pane.dispatch("bookmarks.menu", self.pane)
+                return 1
+            self._push_xy = (fltk.Fl.event_x(), fltk.Fl.event_y())
+            self._dragging = False
+            return 1
+        if event == fltk.FL_DRAG and self._push_xy and not self._dragging:
+            if (abs(fltk.Fl.event_x() - self._push_xy[0])
+                    + abs(fltk.Fl.event_y() - self._push_xy[1])) > 6:
+                self._dragging = True
+                self._push_xy = None
+                self.pane.start_header_drag()
+            return 1
+        if event == fltk.FL_RELEASE:
+            self._push_xy = None
+            return 1
+        return super().handle(event)
 
 
 class _RenameInput(fltk.Fl_Input):
@@ -241,12 +298,8 @@ class FilePane(fltk.Fl_Group):
         self.sort_rev = False
         self._search = ""
         self._search_t = 0.0
-        self.header = fltk.Fl_Box(x, y, w, HDR_H)
-        self.header.box(fltk.FL_FLAT_BOX)
-        self.header.color(theme.PATH_IDLE)
-        self.header.align(fltk.FL_ALIGN_INSIDE | fltk.FL_ALIGN_LEFT | fltk.FL_ALIGN_CLIP)
-        self.header.labelfont(fltk.FL_HELVETICA_BOLD)
-        self.header.labelsize(12)
+        self.is_active = False
+        self.header = PaneHeader(x, y, w, HDR_H, self)
         self.table = FileTable(x, y + HDR_H, w, h - HDR_H - FOOT_H, self)
         self.footer = fltk.Fl_Box(x, y + h - FOOT_H, w, FOOT_H)
         self.footer.box(fltk.FL_FLAT_BOX)
@@ -657,8 +710,30 @@ class FilePane(fltk.Fl_Group):
             f"{len(real)} selected")
 
     def set_active(self, active: bool):
-        self.header.color(theme.PATH_ACTIVE if active else theme.PATH_IDLE)
+        self.is_active = active
         self.header.redraw()
+        self.redraw_view()
+
+    def start_header_drag(self):
+        """Drag the current directory out (to the locations toolbar or a
+        file manager). Local paths only for the toolbar's own DND-in."""
+        if self.vfs.scheme != "file":
+            self.flash("drag dir: local only for external drop")
+            return
+        try:
+            w = self.window()
+            own = []
+            ww = fltk.Fl.first_window()
+            while ww:
+                own.append(fltk.fl_xid(ww))
+                ww = fltk.Fl.next_window(ww)
+            dnd.start_file_drag(w, [self.path], own)
+        except (NotImplementedError, RuntimeError) as ex:
+            self.flash(f"drag: {ex}")
+        ww = fltk.Fl.first_window()
+        while ww:
+            ww.redraw()
+            ww = fltk.Fl.next_window(ww)
 
     def flash(self, msg: str):
         self.footer.copy_label(" " + esc(msg))

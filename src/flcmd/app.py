@@ -32,17 +32,26 @@ class App:
         self.keymap = Keymap(self.cfg.get("keys"))
         self._viewers: list = []
 
+        from .ui.toolbar import LocationsToolbar, TOOLBAR_H
         self.win = fltk.Fl_Double_Window(w, h, "flcmd")
         self.menubar = fltk.Fl_Menu_Bar(0, 0, w, MENU_H)
         self.menubar.box(fltk.FL_THIN_UP_BOX)
         self._build_menu()
-        ph = h - MENU_H - FKEY_H
-        self.tile = fltk.Fl_Tile(0, MENU_H, w, ph)
+        self.show_toolbar = bool(self.cfg.get("toolbar", {}).get("show", True))
+        tb_h = TOOLBAR_H if self.show_toolbar else 0
+        self.toolbar = LocationsToolbar(
+            0, MENU_H, w, TOOLBAR_H,
+            lambda loc: self._go_location(self.active(), loc), self.win)
+        if not self.show_toolbar:
+            self.toolbar.hide()
+        top = MENU_H + tb_h
+        ph = h - top - FKEY_H
+        self.tile = fltk.Fl_Tile(0, top, w, ph)
         vfs = LocalVFS()
         lp = self._start_path(vfs, left_path, "left")
         rp = self._start_path(vfs, right_path, "right")
-        self.left = FilePane(0, MENU_H, w // 2, ph, vfs, lp, self.dispatch, self.keymap)
-        self.right = FilePane(w // 2, MENU_H, w - w // 2, ph, vfs, rp, self.dispatch, self.keymap)
+        self.left = FilePane(0, top, w // 2, ph, vfs, lp, self.dispatch, self.keymap)
+        self.right = FilePane(w // 2, top, w - w // 2, ph, vfs, rp, self.dispatch, self.keymap)
         self.tile.end()
         for side in ("left", "right"):
             p = getattr(self, side)
@@ -67,6 +76,8 @@ class App:
         self._watching = True
         fltk.Fl.add_timeout(1.0, self._watch_tick)
         self.left.on_cursor = self.right.on_cursor = self._cursor_moved
+        self._active = self.left
+        self.set_active_pane(self.left)
 
     def _build_menu(self):
         mb, cb = self.menubar, self._menu_cb
@@ -76,7 +87,9 @@ class App:
         mb.add("&Files/Re&name\tF2", 0, cb, "file.rename")
         mb.add("&Files/&Properties\tAlt+Enter", 0, cb, "file.props")
         mb.add("&Files/Calculate &Occupied Space\tCtrl+L", 0, cb,
-               "pane.dirsize", fltk.FL_MENU_DIVIDER)
+               "pane.dirsize")
+        mb.add("&Files/&Bookmark Current Dir...", 0, cb, "bookmarks.add",
+               fltk.FL_MENU_DIVIDER)
         mb.add("&Files/&Quit\tAlt+F4", 0, cb, "app.quit")
         mb.add("&Mark/Select &All\tCtrl+A", 0, cb, "sel.all")
         mb.add("&Mark/&Unselect All\tCtrl+Shift+A", 0, cb, "sel.none")
@@ -98,7 +111,8 @@ class App:
                fltk.FL_MENU_DIVIDER)
         mb.add("&Show/&List View", 0, cb, "pane.list")
         mb.add("&Show/&Thumbnail View\tCtrl+Shift+F1", 0, cb, "pane.thumbs")
-        mb.add("&Show/&Quick View Panel\tCtrl+Q", 0, cb, "pane.quickview",
+        mb.add("&Show/&Quick View Panel\tCtrl+Q", 0, cb, "pane.quickview")
+        mb.add("&Show/&Locations Toolbar", 0, cb, "toolbar.toggle",
                fltk.FL_MENU_DIVIDER)
         from .panes.thumbs import TILE_SIZES
         for ts in TILE_SIZES:
@@ -125,8 +139,15 @@ class App:
 
     # -- helpers -----------------------------------------------------------
     def active(self) -> FilePane:
-        f = fltk.Fl.focus()
-        return self.right if f is self.right.table else self.left
+        return self._active
+
+    def set_active_pane(self, pane: FilePane):
+        if pane.mode == "preview":
+            return  # quick-view panel never becomes active
+        if self._active is not pane:
+            self._active = pane
+        pane.set_active(True)
+        self.other(pane).set_active(False)
 
     def other(self, pane: FilePane) -> FilePane:
         return self.right if pane is self.left else self.left
@@ -162,6 +183,9 @@ class App:
             for p in (self.left, self.right):
                 if p.preview:
                     p.preview.set_zoom(z)
+            return True
+        if action.startswith("bookmark.go:"):
+            self._go_location(pane, action[len("bookmark.go:"):])
             return True
         m = getattr(self, "_act_" + action.replace(".", "_"), None)
         if m:
@@ -426,6 +450,105 @@ class App:
                 return
             pane.refresh(keep_cursor_name=name)
         viewer.edit_file(self.cfg, p, pane.flash)
+
+    def _act_pane_activate(self, pane):
+        self.set_active_pane(pane)
+
+    def _act_bookmarks_add(self, pane):
+        self._bookmark_add_current(pane)
+
+    def _act_toolbar_toggle(self, pane):
+        from .ui.toolbar import TOOLBAR_H
+        self.show_toolbar = not self.show_toolbar
+        config.update("toolbar", {"show": self.show_toolbar})
+        top = MENU_H + (TOOLBAR_H if self.show_toolbar else 0)
+        if self.show_toolbar:
+            self.toolbar.show()
+        else:
+            self.toolbar.hide()
+        self.tile.resize(0, top, self.win.w(), self.win.h() - top - FKEY_H)
+        self.win.redraw()
+
+    # -- bookmarks (folder shortcuts menu) + locations toolbar -----------------
+    def _go_location(self, pane, location: str):
+        """chdir the pane to a bookmarked location (local path or sftp URL)."""
+        from .ssh import SSHSession
+        from .vfs.sftp import SftpVFS
+        if location.startswith("sftp://"):
+            rest = location[len("sftp://"):]
+            host, _, p = rest.partition("/")
+            rpath = "/" + p
+            # reuse an existing sftp session on this pane to the same host
+            if (pane.vfs.scheme == "sftp"
+                    and pane.vfs.session.label == host):
+                pane.set_path(rpath)
+                return
+            try:
+                sess = SSHSession(host)
+            except Exception as e:
+                pane.flash(f"connect {host}: {e}")
+                return
+            while pane.vfs.scheme == "sftp":
+                pane.pop_vfs()
+            pane.push_vfs(SftpVFS(sess), rpath if p else sess.home)
+        else:
+            while pane.vfs.scheme != "file":
+                pane.pop_vfs()
+            if pane.vfs.is_dir(location):
+                pane.set_path(location)
+            else:
+                pane.flash(f"no such directory: {location}")
+
+    def _act_bookmarks_menu(self, pane):
+        """Folder-shortcuts popup (double-click on the panel header)."""
+        from . import bookmarks
+        from .ui import esc
+        self.set_active_pane(pane)
+        data = bookmarks.load()
+        result: list = [None]
+
+        def pick(wid, token):
+            result[0] = token
+
+        mb = fltk.Fl_Menu_Button(fltk.Fl.event_x_root(),
+                                 fltk.Fl.event_y_root(), 0, 0)
+        mb.type(fltk.Fl_Menu_Button.POPUP3)
+
+        def add_nodes(nodes, prefix):
+            for node in nodes:
+                title = esc(node.get("title", "?")).replace("/", "\\/")
+                if "items" in node:
+                    add_nodes(node["items"], prefix + title + "/")
+                else:
+                    mb.add(prefix + title, 0, pick, "go:" + node.get("path", ""))
+
+        add_nodes(data["bookmarks"], "")
+        mb.add("+ Add current dir", 0, pick, "add", fltk.FL_MENU_DIVIDER)
+        mb.add("* Configure...", 0, pick, "configure")
+        mb.popup()
+        token = result[0]
+        if token == "add":
+            self._bookmark_add_current(pane)
+        elif token == "configure":
+            self._bookmark_configure(pane)
+        elif isinstance(token, str) and token.startswith("go:"):
+            self._go_location(pane, token[3:])
+
+    def _bookmark_add_current(self, pane):
+        from . import bookmarks
+        loc = bookmarks.make_location(pane.vfs, pane.path)
+        title = dialogs.ask_text("Add bookmark", "Menu title:",
+                                 bookmarks.short_title(loc))
+        if not title:
+            return
+        data = bookmarks.load()
+        bookmarks.add_bookmark(data, title, loc)
+        bookmarks.save(data)
+        pane.flash(f"bookmarked: {title}")
+
+    def _bookmark_configure(self, pane):
+        from . import bookmarks
+        pane.flash(f"bookmarks file: {bookmarks._store_path()}")
 
     # -- view modes (thumbnails / quick view) ----------------------------------
     def _act_pane_list(self, pane):
