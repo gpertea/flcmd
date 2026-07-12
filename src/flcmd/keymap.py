@@ -65,6 +65,8 @@ DEFAULTS = {
     "file.props": ["Alt+Enter"],
     "pane.dirsize": ["Ctrl+L"],
     "net.connect": ["Ctrl+N"],
+    "pane.quickview": ["Ctrl+Q"],
+    "pane.thumbs": ["Ctrl+Shift+F1"],
     "app.quit": ["Alt+F4"],
 }
 
@@ -93,12 +95,16 @@ def parse(spec: str) -> tuple[int, int]:
 class Keymap:
     def __init__(self, overrides: dict | None = None):
         self._map: dict[tuple[int, int], str] = {}
-        table = dict(DEFAULTS)
-        for action, specs in (overrides or {}).items():
+        overrides = dict(overrides or {})
+        for action, specs in DEFAULTS.items():
+            if action in overrides:
+                continue
+            for spec in specs:
+                self._map[parse(spec)] = action
+        # user bindings applied last: they win over any default on that key
+        for action, specs in overrides.items():
             if isinstance(specs, str):  # ini form: "F3" or "F3, Ctrl+Q"
                 specs = [s.strip() for s in specs.split(",") if s.strip()]
-            table[action] = specs
-        for action, specs in table.items():
             for spec in specs:
                 self._map[parse(spec)] = action
 

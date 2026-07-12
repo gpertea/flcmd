@@ -50,11 +50,28 @@ tests). User review requested at milestones marked [REVIEW].
   dead-space clear), full-height pane background
 - Still open: win32 (pywin32 OLE) and macOS (pyobjc) drag-out backends
 
-## Stage 5 -- VFS: archives + built-in SSH
-- archive.py: browse zip/tar as directories; pack/unpack via F5
+## Stage 5 -- VFS: archives + built-in SSH [DONE]
+- archive.py: zip/tar browsed as directories (read-only; Enter/Ctrl+PgDn
+  opens, '..' pops out); copy-out via the ops engine; pack later
 - ssh/: paramiko sessions, agent + pubkey auth, ssh_config aliases,
-  custom config path setting (Windows); sftp.py VFS; connect dialog
-  (Ctrl+N / Net menu), reconnect, host key prompts  [REVIEW]
+  custom config path in [ssh] config_file; sftp.py VFS with streaming
+  prefetch; Ctrl+N connect (remembers last host), password fallback,
+  Disconnect; F3 views remote/archived files via temp copy
+- open: remote listdir runs on the UI thread (brief block), no pack/
+  unpack into archives yet, no per-op concurrent sftp sessions
+
+## Stage 5b -- image browser [DONE]
+- panes/images.py: FLTK jpeg/png/gif/bmp decoders (fast C, no deps),
+  Pillow fallback for webp (dev/optional); no Fl_Shared_Image (SWIG
+  ownership conflicts -> double frees)
+- Quick View panel (Ctrl+Q, TC-style): inactive pane previews the image
+  under the other pane's cursor (80 ms debounce); zoom lock fit / fit
+  width / 100% persisted in [preview], reapplied on pane/divider resize
+- Thumbnail view per pane (Ctrl+Shift+F1 / Show menu): grid with
+  filenames under tiles, configurable tile size (64-256 px, persisted in
+  [thumbs]), incremental non-blocking decode, folder/placeholder tiles;
+  cursor, selection, F5/F6/F8, drag-out all keep working
+- open: preview/thumbs for non-local VFS, EXIF rotation, video thumbs
 
 ## Stage 6 -- plugins
 - plugins/api.py: Python plugin API (viewer/packer/content/fs), discovery,

@@ -21,6 +21,62 @@ COL_EXT, COL_SIZE, COL_DATE = 44, 84, 104
 _UP = DirEntry(name="..", is_dir=True)
 
 
+# -- input handling shared by the list table and the thumbnail grid ---------
+def table_click(tbl):
+    ctx = tbl.callback_context()
+    ev = fltk.Fl.event()
+    if fltk.Fl.event_button() != fltk.FL_LEFT_MOUSE:
+        return
+    if ctx == _T.CONTEXT_CELL:
+        idx = tbl.cell_index(tbl.callback_row(), tbl.callback_col())
+        if not (0 <= idx < len(tbl.pane.view)):
+            return
+        if ev == fltk.FL_PUSH:
+            tbl._cell_pushed = True
+            tbl.take_focus()
+            tbl.pane.on_mouse_push(idx)
+            if fltk.Fl.event_clicks():
+                tbl.pane.dispatch("nav.open", tbl.pane)
+    elif ctx == _T.CONTEXT_TABLE and ev == fltk.FL_PUSH:
+        # dead-space click: just focus the pane (TC keeps selection)
+        tbl.take_focus()
+
+
+def table_handle(tbl, event, sup) -> int:
+    if event in (fltk.FL_FOCUS, fltk.FL_UNFOCUS):
+        tbl.pane.set_active(event == fltk.FL_FOCUS)
+        tbl.redraw()
+        return 1
+    if event == fltk.FL_PUSH and fltk.Fl.event_button() == fltk.FL_LEFT_MOUSE:
+        tbl._push_xy = (fltk.Fl.event_x(), fltk.Fl.event_y())
+        tbl._dragging = False
+        tbl._cell_pushed = False
+        return sup(event)
+    if event == fltk.FL_DRAG and tbl._push_xy and not tbl._dragging:
+        dx = abs(fltk.Fl.event_x() - tbl._push_xy[0])
+        dy = abs(fltk.Fl.event_y() - tbl._push_xy[1])
+        if dx + dy > 6:
+            tbl._dragging = True
+            tbl._push_xy = None
+            tbl.pane.start_drag()
+            fltk.Fl.pushed(None)
+            tbl._dragging = False
+        return 1
+    if event == fltk.FL_RELEASE:
+        tbl._push_xy = None
+        return sup(event) or 1
+    if event in (fltk.FL_DND_ENTER, fltk.FL_DND_DRAG, fltk.FL_DND_RELEASE):
+        return 1
+    if event == fltk.FL_PASTE:
+        tbl.pane.on_drop(fltk.Fl.event_text())
+        return 1
+    if event == fltk.FL_KEYDOWN:
+        if tbl.pane.on_key():
+            return 1
+        return sup(event)
+    return sup(event)
+
+
 def fmt_date(e: DirEntry) -> str:
     if not e.mtime:
         return ""
@@ -62,58 +118,35 @@ class FileTable(fltk.Fl_Table_Row):
         super().resize(x, y, w, h)
         self._autosize_cols()
 
+    def cell_index(self, r: int, c: int) -> int:
+        return r
+
+    def nav_key(self, key: int) -> bool:
+        m = self._NAV.get(key)
+        if m is None:
+            return False
+        self.pane.move_cursor(**m)
+        return True
+
+    _NAV = {
+        fltk.FL_Up: {"delta": -1}, fltk.FL_Down: {"delta": 1},
+        fltk.FL_Home: {"absolute": "home"}, fltk.FL_End: {"absolute": "end"},
+        fltk.FL_Page_Up: {"delta": "pgup"}, fltk.FL_Page_Down: {"delta": "pgdn"},
+    }
+
+    def ensure_visible(self, idx: int):
+        r1 = self.top_row()
+        vis = self.vis_rows()
+        if idx < r1:
+            self.top_row(idx)
+        elif idx >= r1 + vis:
+            self.top_row(idx - vis + 1)
+
     def _on_click(self, wid):
-        ctx = self.callback_context()
-        ev = fltk.Fl.event()
-        if fltk.Fl.event_button() != fltk.FL_LEFT_MOUSE:
-            return
-        if ctx == _T.CONTEXT_CELL:
-            row = self.callback_row()
-            if not (0 <= row < len(self.pane.view)):
-                return
-            if ev == fltk.FL_PUSH:
-                self._cell_pushed = True
-                self.take_focus()
-                self.pane.on_mouse_push(row)
-                if fltk.Fl.event_clicks():
-                    self.pane.dispatch("nav.open", self.pane)
-        elif ctx == _T.CONTEXT_TABLE and ev == fltk.FL_PUSH:
-            # dead-space click: just focus the pane (TC keeps selection)
-            self.take_focus()
+        table_click(self)
 
     def handle(self, event):
-        if event in (fltk.FL_FOCUS, fltk.FL_UNFOCUS):
-            self.pane.set_active(event == fltk.FL_FOCUS)
-            self.redraw()
-            return 1
-        if event == fltk.FL_PUSH and fltk.Fl.event_button() == fltk.FL_LEFT_MOUSE:
-            self._push_xy = (fltk.Fl.event_x(), fltk.Fl.event_y())
-            self._dragging = False
-            self._cell_pushed = False
-            return super().handle(event)
-        if event == fltk.FL_DRAG and self._push_xy and not self._dragging:
-            dx = abs(fltk.Fl.event_x() - self._push_xy[0])
-            dy = abs(fltk.Fl.event_y() - self._push_xy[1])
-            if dx + dy > 6:
-                self._dragging = True
-                self._push_xy = None
-                self.pane.start_drag()
-                fltk.Fl.pushed(None)
-                self._dragging = False
-            return 1
-        if event == fltk.FL_RELEASE:
-            self._push_xy = None
-            return super().handle(event) or 1
-        if event in (fltk.FL_DND_ENTER, fltk.FL_DND_DRAG, fltk.FL_DND_RELEASE):
-            return 1
-        if event == fltk.FL_PASTE:
-            self.pane.on_drop(fltk.Fl.event_text())
-            return 1
-        if event == fltk.FL_KEYDOWN:
-            if self.pane.on_key():
-                return 1
-            return super().handle(event)
-        return super().handle(event)
+        return table_handle(self, event, super().handle)
 
     def draw_cell(self, ctx, r=0, c=0, x=0, y=0, w=0, h=0):
         if ctx == _T.CONTEXT_STARTPAGE:
@@ -200,6 +233,10 @@ class FilePane(fltk.Fl_Group):
         self._rename: _RenameInput | None = None
         self._mtime = 0.0  # dir mtime at last listing (external-change poll)
         self.vfs_stack: list[tuple] = []  # (vfs, path, cursor) below this one
+        self.mode = "list"                # list | thumbs | preview
+        self.thumbs = None                # ThumbView, created on demand
+        self.preview = None               # PreviewView, created on demand
+        self.on_cursor = None             # app hook: cursor moved
         self.sort_key = "name"
         self.sort_rev = False
         self._search = ""
@@ -287,6 +324,8 @@ class FilePane(fltk.Fl_Group):
         self.table.rows(len(self.view))
         self.table.row_height_all(ROW_H)  # rows() resets heights to default
         self.table._autosize_cols()
+        if self.thumbs:
+            self.thumbs.relayout()
         self.header.copy_label(" " + self.vfs.display(self.path))
         self._update_footer()
         self.table.redraw()
@@ -295,15 +334,51 @@ class FilePane(fltk.Fl_Group):
     def current(self) -> DirEntry | None:
         return self.view[self.cursor] if 0 <= self.cursor < len(self.view) else None
 
+    def active_view(self):
+        return self.thumbs if (self.mode == "thumbs" and self.thumbs) else self.table
+
+    def redraw_view(self):
+        self.table.redraw()
+        if self.thumbs and self.thumbs.visible():
+            self.thumbs.redraw()
+
+    def set_mode(self, mode: str):
+        if mode == self.mode:
+            return
+        if self._rename:
+            self.end_rename(None)
+        t = self.table
+        if mode == "thumbs" and self.thumbs is None:
+            from .thumbs import ThumbView
+            self.thumbs = ThumbView(t.x(), t.y(), t.w(), t.h(), self)
+            self.add(self.thumbs)
+        if mode == "preview" and self.preview is None:
+            from .preview import PreviewView
+            self.preview = PreviewView(t.x(), t.y(), t.w(), t.h(), self)
+            self.add(self.preview)
+        self.mode = mode
+        for wdg, on in ((self.table, mode == "list"),
+                        (self.thumbs, mode == "thumbs"),
+                        (self.preview, mode == "preview")):
+            if wdg:
+                wdg.show() if on else wdg.hide()
+        if mode == "thumbs":
+            self.thumbs.resize(t.x(), t.y(), t.w(), t.h())
+            self.thumbs.relayout()
+            self.thumbs.take_focus()
+        elif mode == "list":
+            self.table.take_focus()
+        if mode != "preview":
+            self._sync()
+        self.redraw()
+
     def set_cursor(self, i: int):
         self.cursor = max(0, min(i, len(self.view) - 1))
-        r1 = self.table.top_row()
-        vis = self.table.vis_rows()
-        if self.cursor < r1:
-            self.table.top_row(self.cursor)
-        elif self.cursor >= r1 + vis:
-            self.table.top_row(self.cursor - vis + 1)
-        self.table.redraw()
+        v = self.active_view()
+        v.ensure_visible(self.cursor)
+        v.redraw()
+        if self.on_cursor:
+            self.on_cursor(self)
 
     def move_cursor(self, delta=None, absolute=None):
         vis = self.table.vis_rows()
@@ -327,25 +402,25 @@ class FilePane(fltk.Fl_Group):
         if advance:
             self.move_cursor(delta=1)
         self._update_footer()
-        self.table.redraw()
+        self.redraw_view()
 
     def select_all(self, on=True):
         self.selected = {e.name for e in self.view if e.name != ".."} if on else set()
         self._update_footer()
-        self.table.redraw()
+        self.redraw_view()
 
     def select_glob(self, pattern: str, add=True):
         hits = {e.name for e in self.view
                 if not e.is_dir and fnmatch(e.name.lower(), pattern.lower())}
         self.selected = (self.selected | hits) if add else (self.selected - hits)
         self._update_footer()
-        self.table.redraw()
+        self.redraw_view()
 
     def invert_selection(self):
         files = {e.name for e in self.view if not e.is_dir}
         self.selected = files - self.selected
         self._update_footer()
-        self.table.redraw()
+        self.redraw_view()
 
     # -- mouse selection (TC semantics) --------------------------------------
     # Plain click only moves the cursor: the item under the cursor is the
@@ -364,7 +439,7 @@ class FilePane(fltk.Fl_Group):
                 self.selected ^= {e.name}
         self.set_cursor(row)
         self._update_footer()
-        self.table.redraw()
+        self.redraw_view()
 
     # -- nested VFS (archives, later sftp-in-archive etc.) --------------------
     def push_vfs(self, new_vfs: VFS, start_path: str):
@@ -492,12 +567,6 @@ class FilePane(fltk.Fl_Group):
         self.refresh()
 
     # -- keyboard ------------------------------------------------------------
-    _NAV = {
-        fltk.FL_Up: {"delta": -1}, fltk.FL_Down: {"delta": 1},
-        fltk.FL_Home: {"absolute": "home"}, fltk.FL_End: {"absolute": "end"},
-        fltk.FL_Page_Up: {"delta": "pgup"}, fltk.FL_Page_Down: {"delta": "pgdn"},
-    }
-
     def on_key(self) -> bool:
         key = fltk.Fl.event_key()
         state = fltk.Fl.event_state()
@@ -505,8 +574,7 @@ class FilePane(fltk.Fl_Group):
         action = self.keymap.action_for_event()
         if action:
             return bool(self.dispatch(action, self))
-        if not mods and key in self._NAV:
-            self.move_cursor(**self._NAV[key])
+        if not mods and self.active_view().nav_key(key):
             return True
         txt = fltk.Fl.event_text()
         if not mods and txt and txt.isprintable() and txt != " ":
@@ -572,7 +640,7 @@ class FilePane(fltk.Fl_Group):
             else:
                 total += e.size
         self._update_footer()
-        self.table.redraw()
+        self.redraw_view()
         return total
 
     def _update_footer(self):

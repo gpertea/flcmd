@@ -66,6 +66,7 @@ class App:
         self.win.size_range(400, 300)
         self._watching = True
         fltk.Fl.add_timeout(1.0, self._watch_tick)
+        self.left.on_cursor = self.right.on_cursor = self._cursor_moved
 
     def _build_menu(self):
         mb, cb = self.menubar, self._menu_cb
@@ -93,7 +94,18 @@ class App:
         mb.add("&Show/Sort by &Size\tCtrl+F6", 0, cb, "sort.size",
                fltk.FL_MENU_DIVIDER)
         mb.add("&Show/&Refresh\tCtrl+R", 0, cb, "pane.refresh")
-        mb.add("&Show/S&wap Panes\tCtrl+U", 0, cb, "pane.swap")
+        mb.add("&Show/S&wap Panes\tCtrl+U", 0, cb, "pane.swap",
+               fltk.FL_MENU_DIVIDER)
+        mb.add("&Show/&List View", 0, cb, "pane.list")
+        mb.add("&Show/&Thumbnail View\tCtrl+Shift+F1", 0, cb, "pane.thumbs")
+        mb.add("&Show/&Quick View Panel\tCtrl+Q", 0, cb, "pane.quickview",
+               fltk.FL_MENU_DIVIDER)
+        from .panes.thumbs import TILE_SIZES
+        for ts in TILE_SIZES:
+            mb.add(f"&Show/Thumbnail Si&ze/{ts} px", 0, cb, f"thumbs.size:{ts}")
+        for z, lbl in (("fit", "&Fit"), ("fitw", "Fit &Width"),
+                       ("100", "&100%")):
+            mb.add(f"&Show/Preview &Zoom/{lbl}", 0, cb, f"preview.zoom:{z}")
         mb.add("C&onfiguration/&Options...", 0, cb, "cfg.options", inactive)
         mb.add("C&onfiguration/Change &Editor Command...", 0, cb, "cfg.editor")
         mb.add("&Help/&About flcmd", 0, cb, "help.about")
@@ -137,6 +149,20 @@ class App:
 
     # -- actions -----------------------------------------------------------
     def dispatch(self, action: str, pane: FilePane) -> bool:
+        if action.startswith("thumbs.size:"):
+            ts = int(action.split(":")[1])
+            config.update("thumbs", {"size": ts})
+            for p in (self.left, self.right):
+                if p.thumbs:
+                    p.thumbs.set_tile(ts)
+            return True
+        if action.startswith("preview.zoom:"):
+            z = action.split(":")[1]
+            config.update("preview", {"zoom": z})
+            for p in (self.left, self.right):
+                if p.preview:
+                    p.preview.set_zoom(z)
+            return True
         m = getattr(self, "_act_" + action.replace(".", "_"), None)
         if m:
             m(pane)
@@ -147,9 +173,12 @@ class App:
         return False
 
     def _act_pane_switch(self, pane):
-        self.other(pane).table.take_focus()
-        self.left.table.redraw()
-        self.right.table.redraw()
+        other = self.other(pane)
+        if other.mode == "preview":
+            return  # quick-view panel is not focusable (TC behavior)
+        other.active_view().take_focus()
+        self.left.redraw_view()
+        self.right.redraw_view()
 
     def _act_pane_swap(self, pane):
         lp, rp = self.left.path, self.right.path
@@ -397,6 +426,46 @@ class App:
                 return
             pane.refresh(keep_cursor_name=name)
         viewer.edit_file(self.cfg, p, pane.flash)
+
+    # -- view modes (thumbnails / quick view) ----------------------------------
+    def _act_pane_list(self, pane):
+        pane.set_mode("list")
+
+    def _act_pane_thumbs(self, pane):
+        pane.set_mode("thumbs" if pane.mode != "thumbs" else "list")
+
+    def _act_pane_quickview(self, pane):
+        other = self.other(pane)
+        if other.mode == "preview":
+            other.set_mode(getattr(other, "_premode", "list"))
+        else:
+            other._premode = other.mode
+            other.set_mode("preview")
+            self._update_preview(pane)
+
+    def _cursor_moved(self, pane):
+        if self.other(pane).mode == "preview" and pane.mode != "preview":
+            self._pv_src = pane
+            fltk.Fl.remove_timeout(self._pv_tick)
+            fltk.Fl.add_timeout(0.08, self._pv_tick)  # debounce fast cursoring
+
+    def _pv_tick(self, data=None):
+        src = getattr(self, "_pv_src", None)
+        if src:
+            self._update_preview(src)
+
+    def _update_preview(self, src):
+        other = self.other(src)
+        if other.mode != "preview" or not other.preview:
+            return
+        e = src.current()
+        if not e or e.name == "..":
+            other.preview.show_file(None, e)
+            return
+        if src.vfs.scheme == "file":
+            other.preview.show_file(paths.join(src.path, e.name), e)
+        else:
+            other.preview.show_file(None, e)
 
     def _act_net_connect(self, pane):
         import paramiko

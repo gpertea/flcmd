@@ -29,13 +29,15 @@ config. Stage column shows when each lands.
 | F3 | View file (built-in viewer) | 3 |
 | F4 | Edit file (external editor) | 3 |
 | Shift+F4 | Create + edit new file | 3 |
-| Ctrl+PgDn | Open archive as directory | 5 |
+| Ctrl+PgDn | Open archive as directory | done |
 | Alt+F9 | Unpack archive | 5 |
 | Alt+F5 | Pack selection | 5 |
-| Ctrl+N | Network/SSH connect | 5 |
+| Ctrl+N | SSH/SFTP connect | done |
 | Ctrl+T / Ctrl+W | New / close tab | 7 |
 | Ctrl+Tab | Next tab | 7 |
 | Ctrl+D | Directory hotlist | 7 |
+| Ctrl+Q | Quick view panel (image preview) | done |
+| Ctrl+Shift+F1 | Thumbnail view toggle | done |
 | Alt+F1 / Alt+F2 | Left/right drive-root menu | 7 |
 | Alt+F7 | Find files | 7 |
 | Ctrl+B | Branch view (flatten subdirs) | 7 |
