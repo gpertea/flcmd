@@ -122,6 +122,8 @@ class App:
             mb.add(f"&Show/Preview &Zoom/{lbl}", 0, cb, f"preview.zoom:{z}")
         mb.add("C&onfiguration/&Options...", 0, cb, "cfg.options", inactive)
         mb.add("C&onfiguration/Change &Editor Command...", 0, cb, "cfg.editor")
+        mb.add("C&onfiguration/&Folder Shortcuts...", 0, cb,
+               "bookmarks.configure")
         mb.add("&Help/&About flcmd", 0, cb, "help.about")
 
     def _menu_cb(self, wid, action):
@@ -547,8 +549,12 @@ class App:
         pane.flash(f"bookmarked: {title}")
 
     def _bookmark_configure(self, pane):
-        from . import bookmarks
-        pane.flash(f"bookmarks file: {bookmarks._store_path()}")
+        from .ui.bmedit import edit_bookmarks
+        if edit_bookmarks():
+            pane.flash("bookmarks saved")
+
+    def _act_bookmarks_configure(self, pane):
+        self._bookmark_configure(pane)
 
     # -- view modes (thumbnails / quick view) ----------------------------------
     def _act_pane_list(self, pane):

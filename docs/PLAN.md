@@ -88,8 +88,10 @@ tests). User review requested at milestones marked [REVIEW].
 - Locations toolbar (Show menu, on by default): drop dirs to add
   buttons, left-click chdir active pane, right-click edit/delete
 - Dialogs: auto-width labels (no truncation), '@' escaped everywhere
-- Still open: bookmark tree editor UI ('* Configure...' just shows the
-  file path for now), toolbar button reordering
+- Bookmark tree editor (Configure... / Configuration menu): add/edit/
+  delete entries and submenus, move up/down, indent/outdent; edits on a
+  working copy, saved only on OK
+- Still open: toolbar button reordering
 
 ## Stage 7 -- power features + polish
 - Tabs (Ctrl+T/W/Tab), command line bar with history, Alt+F7 search,

@@ -132,3 +132,97 @@ class TestGui:
         assert app.tile.y() == app.menubar.h()  # tile reclaimed the space
         app.dispatch("toolbar.toggle", app.left)
         assert app.toolbar.visible()
+
+
+@pytest.mark.gui
+class TestEditor:
+    @pytest.fixture()
+    def ed(self, xdisplay, isolated_config):
+        import fltk
+        from flcmd.ui.bmedit import _Editor
+        nodes = [{"title": "Work", "path": "/w"},
+                 {"title": "Remotes", "items": [
+                     {"title": "gv home", "path": "sftp://gvlin/home/x"}]},
+                 {"title": "Tmp", "path": "/tmp"}]
+        e = _Editor(nodes)
+        e.win.show()
+        for _ in range(3):
+            fltk.Fl.check()
+        yield e
+        e.win.hide()
+        fltk.Fl.check()
+
+    def test_rows_and_display(self, ed):
+        titles = [r[0]["title"] for r in ed.rows]
+        assert titles == ["Work", "Remotes", "gv home", "Tmp"]
+        assert ed.browser.size() == 4
+        assert "Remotes/" in ed.browser.text(2)
+        assert "sftp://gvlin/home/x" in ed.browser.text(3)
+
+    def test_add_bookmark_after_selection(self, ed, monkeypatch):
+        from flcmd.ui import dialogs
+        ed.browser.select(1)  # Work
+        monkeypatch.setattr(dialogs, "ask_fields",
+                            lambda *a, **k: ["New", "/n"])
+        ed.add_bookmark()
+        assert [r[0]["title"] for r in ed.rows][:2] == ["Work", "New"]
+        assert ed.browser.value() == 2  # selection follows the new node
+
+    def test_add_into_submenu(self, ed, monkeypatch):
+        from flcmd.ui import dialogs
+        ed.browser.select(2)  # Remotes submenu -> insert at its top
+        monkeypatch.setattr(dialogs, "ask_fields",
+                            lambda *a, **k: ["gv opt", "sftp://gvlin/opt"])
+        ed.add_bookmark()
+        rem = ed.nodes[1]
+        assert [n["title"] for n in rem["items"]] == ["gv opt", "gv home"]
+
+    def test_edit_and_delete(self, ed, monkeypatch):
+        from flcmd.ui import dialogs
+        ed.browser.select(1)
+        monkeypatch.setattr(dialogs, "ask_fields",
+                            lambda *a, **k: ["Work2", "/w2"])
+        ed.edit()
+        assert ed.nodes[0] == {"title": "Work2", "path": "/w2"}
+        ed.browser.select(2)  # Remotes (has 1 entry)
+        monkeypatch.setattr(dialogs, "confirm", lambda *a, **k: True)
+        ed.delete()
+        assert [n["title"] for n in ed.nodes] == ["Work2", "Tmp"]
+
+    def test_move_and_indent_outdent(self, ed):
+        ed.browser.select(4)  # Tmp
+        ed.move(-1)           # above Remotes
+        assert [n["title"] for n in ed.nodes] == ["Work", "Tmp", "Remotes"]
+        # move Tmp below Remotes again, then indent INTO Remotes
+        node = ed.nodes[1]
+        ed.move(1)
+        assert ed.nodes[2] is node
+        ed.indent()
+        assert node in ed.nodes[1]["items"]
+        assert [n["title"] for n in ed.nodes] == ["Work", "Remotes"]
+        ed.outdent()          # back out, right after Remotes
+        assert [n["title"] for n in ed.nodes] == ["Work", "Remotes", "Tmp"]
+
+    def test_save_only_on_ok(self, xdisplay, isolated_config, monkeypatch):
+        import fltk
+        from flcmd import bookmarks
+        from flcmd.ui import bmedit
+        data = bookmarks.load()
+        bookmarks.add_bookmark(data, "Keep", "/k")
+        bookmarks.save(data)
+
+        # cancel: mutation discarded
+        def run_cancel(self):
+            self.nodes.append({"title": "X", "path": "/x"})
+            return False
+        monkeypatch.setattr(bmedit._Editor, "run", run_cancel)
+        assert bmedit.edit_bookmarks() is False
+        assert [n["title"] for n in bookmarks.load()["bookmarks"]] == ["Keep"]
+
+        # ok: mutation persisted
+        def run_ok(self):
+            self.nodes.append({"title": "X", "path": "/x"})
+            return True
+        monkeypatch.setattr(bmedit._Editor, "run", run_ok)
+        assert bmedit.edit_bookmarks() is True
+        assert [n["title"] for n in bookmarks.load()["bookmarks"]] == ["Keep", "X"]
