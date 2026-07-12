@@ -3,7 +3,29 @@
 Each stage ends runnable and tested (xvfb GUI smoke tests + headless unit
 tests). User review requested at milestones marked [REVIEW].
 
-## Stage 1 -- skeleton + browsing (this stage)
+## Status (2026-07-12)
+Stages 1-5b and 6.5 are DONE: dual-pane browsing, full file operations,
+Lister-style viewer (text/hex/image, any file size), external F4 editor,
+X11 drag and drop both ways, zip/tar browsing, built-in SSH/SFTP (tested
+against a real host), image quick-view + thumbnails, folder shortcuts
+menu + tree editor, locations toolbar. 108 tests green
+(`xvfb-run -a uv run pytest`); ssh-marked tests need a reachable host.
+
+### Next steps -- options (pick on resume)
+1. Stage 6 plugins: Python plugin API mirroring TC semantics, then the
+   ctypes TC C-ABI shim (WLX/WCX first). Largest work item.
+2. Stage 7 power features: pane tabs (Ctrl+T/W/Tab), command line bar
+   with history, Alt+F7 find files, Ctrl+B branch view, Alt+F1/F2 roots.
+3. Archive write support: pack (Alt+F5) / unpack (Alt+F9), copy INTO
+   zip archives.
+4. Custom commands + MSYS2 integration (totalcmd-run-MSYS2-scripts.png
+   reference is in the repo, still unaddressed).
+5. Windows/macOS ports of the dnd drag-out shims (pywin32 OLE / pyobjc).
+6. Smaller items: Ctrl+D hotlist keybinding, toolbar button reordering,
+   Shift+F5 same-dir copy, background op queue, inotify watcher, EXIF
+   rotation, remote/archive thumbnails + preview, options dialog.
+
+## Stage 1 -- skeleton + browsing [DONE]
 - paths.py (canonical '/' paths, native conversion, tests)
 - vfs base + local
 - Main window: dual panes (Fl_Table file lists), path bar, active-pane
@@ -40,7 +62,10 @@ tests). User review requested at milestones marked [REVIEW].
   window follows scrolling (auto-slide near edges), Ctrl+Home/End jump to
   file start/end, and search streams over the file on disk in both
   directions with wraparound. Small files use the normal scrollbar only.
-- Still open: image mode (with WLX plugins, stage 6)  [REVIEW]
+- Viewer image mode added later (stage 5b follow-up): image files open
+  as pictures automatically (1/3/4 switch text/hex/image), zoom lock
+  fit / fit-width / 100% ('z' cycles), persisted; WLX plugin viewing
+  remains stage 6
 
 ## Stage 4 -- drag and drop [DONE EARLY, after stage 1]
 - Drop IN per pane (FLTK FL_DND_* + text/uri-list paste) -> confirm + copy
@@ -95,7 +120,8 @@ tests). User review requested at milestones marked [REVIEW].
 
 ## Stage 7 -- power features + polish
 - Tabs (Ctrl+T/W/Tab), command line bar with history, Alt+F7 search,
-  Ctrl+B branch view, directory hotlist (Ctrl+D), Alt+F1/F2 drive/root list
+  Ctrl+B branch view, Alt+F1/F2 drive/root list
+- Ctrl+D binding for the (already implemented) folder shortcuts menu
 - Custom commands incl. MSYS2 bash script integration on Windows
 - Options dialog, themes/fonts, PyInstaller packaging
 
