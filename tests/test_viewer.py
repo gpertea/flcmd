@@ -104,3 +104,87 @@ def test_hexmode_disables_wrap(win):
     win.do_action("mode:hex")
     assert "wrap" not in win.status.label()
     win.do_action("mode:text")
+
+
+@pytest.fixture()
+def bigfile(tmp_path, isolated_config):
+    from flcmd import config
+    config.save({"viewer": {"window_mb": 1}})  # small window for the test
+    p = tmp_path / "big.txt"
+    with open(p, "w") as f:
+        for i in range(120_000):
+            f.write(f"line {i:07d} {'x' * 16}\n")   # ~3.7 MB, 31 B/line
+    return str(p).replace("\\", "/")
+
+
+@pytest.fixture()
+def bwin(xdisplay, bigfile):
+    import fltk
+    from flcmd.viewer import ViewerWindow
+    w = ViewerWindow([bigfile])
+    w.show()
+    for _ in range(5):
+        fltk.Fl.check()
+    yield w
+    w.hide()
+    fltk.Fl.check()
+
+
+def test_paged_open_is_windowed(bwin):
+    assert bwin.paged
+    assert bwin.fsize > 3_000_000
+    assert len(bwin.data) <= (1 << 20)
+    assert bwin.text.startswith("line 0000000")
+
+
+def test_paged_window_load_boundaries(bwin):
+    # window starts and ends on whole lines wherever it lands
+    bwin._load_window(bwin.fsize // 2)
+    assert bwin.win_off > 0
+    assert bwin.data.startswith(b"line ")      # opening line intact
+    assert bwin.data.endswith(b"\n")           # closing line intact
+    first = int(bwin.data[5:12])
+    assert abs(first - 60_000) < 25_000        # roughly the middle
+
+
+def test_paged_jump_to_end(bwin):
+    bwin.jump_to(bwin.fsize)
+    assert "line 0119999" in bwin.text         # last line reachable
+    assert bwin.win_off + len(bwin.data) == bwin.fsize
+
+
+def test_paged_window_overlap_forward(bwin):
+    # sliding the window forward by half keeps a contiguous, advancing view
+    bwin._load_window(bwin.fsize // 2)
+    off0, end0 = bwin.win_off, bwin.win_off + len(bwin.data)
+    mid_lines = bwin.data.split(b"\n")
+    mid_line = int(mid_lines[len(mid_lines) // 2][5:12])  # a whole line
+    bwin._load_window(off0 + len(bwin.data) // 2)
+    assert bwin.win_off > off0                 # advanced
+    assert bwin.win_off < end0                 # overlaps previous window
+    assert f"line {mid_line:07d}".encode() in bwin.data
+
+
+def test_paged_search_streams_whole_file(bwin):
+    bwin.search_term = "line 0100000"          # ~3.1 MB in, past first window
+    bwin.find(1, from_start=True)
+    assert "not found" not in bwin.status.label()
+    assert bwin.win_off > (1 << 20)            # window moved to the hit
+    assert bwin.buf.selection_text().lower() == "line 0100000"
+
+
+def test_paged_search_backward_wraps(bwin):
+    hit = bwin._stream_find(b"line 0119999", bwin.fsize, -1)
+    assert hit > 0
+    assert bwin._read(hit, 12) == b"line 0119999"
+
+
+def test_paged_hex_alignment(bwin):
+    bwin.do_action("mode:hex")
+    assert bwin.win_off % 16 == 0
+    bwin._load_window(bwin.fsize // 2)
+    first = bwin.text.splitlines()[0] if bwin.text else ""
+    bwin.render()
+    first = bwin.text.splitlines()[0]
+    assert int(first[:8], 16) == bwin.win_off  # absolute file offsets shown
+    bwin.do_action("mode:text")

@@ -35,8 +35,12 @@ tests). User review requested at milestones marked [REVIEW].
   first use or via Configuration menu; Shift+F4 creates + edits
 - config: flcmd.ini (configparser, wincmd.ini style) replaces TOML;
   typed load; [viewer]/[editor]/[window]/[left]/[right]/[keys] sections
-- Still open: image mode (with WLX plugins, stage 6), files > max_mb
-  are truncated (streaming/paging later)  [REVIEW]
+- Files of ANY size open instantly: only a sliding window (window_mb,
+  default 8 MB) is held; a file-wide scrollbar maps the whole file, the
+  window follows scrolling (auto-slide near edges), Ctrl+Home/End jump to
+  file start/end, and search streams over the file on disk in both
+  directions with wraparound. Small files use the normal scrollbar only.
+- Still open: image mode (with WLX plugins, stage 6)  [REVIEW]
 
 ## Stage 4 -- drag and drop [DONE EARLY, after stage 1]
 - Drop IN per pane (FLTK FL_DND_* + text/uri-list paste) -> confirm + copy
