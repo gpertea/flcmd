@@ -64,6 +64,7 @@ DEFAULTS = {
     "file.delete": ["F8", "Delete"],
     "file.props": ["Alt+Enter"],
     "pane.dirsize": ["Ctrl+L"],
+    "net.connect": ["Ctrl+N"],
     "app.quit": ["Alt+F4"],
 }
 

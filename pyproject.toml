@@ -25,6 +25,7 @@ dev = [
 testpaths = ["tests"]
 markers = [
     "gui: tests that need an X display (run under Xvfb)",
+    "ssh: integration tests that need a reachable ssh host (FLCMD_TEST_SSH_HOST, default gvlin)",
 ]
 
 [build-system]

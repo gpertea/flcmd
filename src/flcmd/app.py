@@ -85,7 +85,8 @@ class App:
         mb.add("&Mark/Unselect Grou&p...\tNum -", 0, cb, "sel.glob_sub")
         mb.add("&Commands/&Search Files...\tAlt+F7", 0, cb, "cmd.search", inactive)
         mb.add("&Commands/Open &Terminal", 0, cb, "cmd.terminal", inactive)
-        mb.add("&Net/&SSH\\/SFTP Connect...\tCtrl+N", 0, cb, "net.connect", inactive)
+        mb.add("&Net/&SSH\\/SFTP Connect...\tCtrl+N", 0, cb, "net.connect")
+        mb.add("&Net/&Disconnect", 0, cb, "net.disconnect")
         mb.add("&Show/Sort by &Name\tCtrl+F3", 0, cb, "sort.name")
         mb.add("&Show/Sort by &Extension\tCtrl+F4", 0, cb, "sort.ext")
         mb.add("&Show/Sort by &Date\tCtrl+F5", 0, cb, "sort.date")
@@ -396,6 +397,46 @@ class App:
                 return
             pane.refresh(keep_cursor_name=name)
         viewer.edit_file(self.cfg, p, pane.flash)
+
+    def _act_net_connect(self, pane):
+        import paramiko
+        from .ssh import SSHSession
+        from .vfs.sftp import SftpVFS
+        last = self.cfg.get("ssh", {}).get("last_host", "")
+        target = dialogs.ask_text("SSH/SFTP Connect",
+                                  "Host (ssh alias or [user@]host[:port]):",
+                                  last)
+        if not target:
+            return
+        password = None
+        for _ in range(3):  # pubkey/agent first, then password retries
+            try:
+                self.win.cursor(fltk.FL_CURSOR_WAIT)
+                fltk.Fl.check()
+                sess = SSHSession(target, password=password)
+                break
+            except paramiko.AuthenticationException:
+                password = dialogs.ask_text("Authentication",
+                                            f"Password for {target}:",
+                                            secret=True)
+                if not password:
+                    return
+            except Exception as e:
+                pane.flash(f"connect: {e}")
+                return
+            finally:
+                self.win.cursor(fltk.FL_CURSOR_DEFAULT)
+        else:
+            pane.flash("connect: authentication failed")
+            return
+        self.cfg.setdefault("ssh", {})["last_host"] = target
+        config.update("ssh", {"last_host": target})
+        pane.push_vfs(SftpVFS(sess), sess.home)
+
+    def _act_net_disconnect(self, pane):
+        while pane.vfs.scheme == "sftp":
+            if not pane.pop_vfs():
+                break
 
     def _act_cfg_editor(self, pane):
         cur = self.cfg.get("editor", {}).get("command", "")

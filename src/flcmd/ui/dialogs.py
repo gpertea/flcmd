@@ -38,7 +38,8 @@ def ask_buttons(title: str, message: str, buttons: list[str]) -> str:
     return result[0]
 
 
-def ask_text(title: str, label: str, default: str = "") -> str | None:
+def ask_text(title: str, label: str, default: str = "",
+             secret: bool = False) -> str | None:
     """Modal text prompt (TC-style destination/name input)."""
     result = [None]
     w, ih = 460, 24
@@ -46,7 +47,7 @@ def ask_text(title: str, label: str, default: str = "") -> str | None:
     box = fltk.Fl_Box(10, 6, w - 20, 18, label)
     box.align(fltk.FL_ALIGN_INSIDE | fltk.FL_ALIGN_LEFT)
     box.labelsize(12)
-    inp = fltk.Fl_Input(10, 28, w - 20, ih)
+    inp = (fltk.Fl_Secret_Input if secret else fltk.Fl_Input)(10, 28, w - 20, ih)
     inp.textsize(12)
     inp.value(default)
 
