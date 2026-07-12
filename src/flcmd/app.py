@@ -21,9 +21,7 @@ FKEYS = [
     ("F7 MkDir", "file.mkdir"), ("F8 Delete", "file.delete"),
     ("Alt+F4 Exit", "app.quit"),
 ]
-NOT_YET = {
-    "file.edit": "stage 3",
-}
+NOT_YET: dict[str, str] = {}
 
 
 class App:
@@ -72,6 +70,8 @@ class App:
     def _build_menu(self):
         mb, cb = self.menubar, self._menu_cb
         inactive = fltk.FL_MENU_INACTIVE
+        mb.add("&Files/&Edit\tF4", 0, cb, "file.edit")
+        mb.add("&Files/Create + Edit &File\tShift+F4", 0, cb, "file.edit_new")
         mb.add("&Files/Re&name\tF2", 0, cb, "file.rename")
         mb.add("&Files/&Properties\tAlt+Enter", 0, cb, "file.props")
         mb.add("&Files/Calculate &Occupied Space\tCtrl+L", 0, cb,
@@ -94,6 +94,7 @@ class App:
         mb.add("&Show/&Refresh\tCtrl+R", 0, cb, "pane.refresh")
         mb.add("&Show/S&wap Panes\tCtrl+U", 0, cb, "pane.swap")
         mb.add("C&onfiguration/&Options...", 0, cb, "cfg.options", inactive)
+        mb.add("C&onfiguration/Change &Editor Command...", 0, cb, "cfg.editor")
         mb.add("&Help/&About flcmd", 0, cb, "help.about")
 
     def _menu_cb(self, wid, action):
@@ -339,6 +340,38 @@ class App:
             return
         self._viewers = [v for v in self._viewers if v.visible()]
         self._viewers.append(viewer.view_file(paths.join(pane.path, e.name)))
+
+    def _act_file_edit(self, pane):
+        e = pane.current()
+        if not e or e.is_dir:
+            return
+        if viewer.edit_file(self.cfg, paths.join(pane.path, e.name),
+                            pane.flash):
+            pane.flash(f"editing {e.name}")
+
+    def _act_file_edit_new(self, pane):
+        name = dialogs.ask_text("New file", "Create and edit file:")
+        if not name:
+            return
+        p = paths.join(pane.path, name)
+        if not pane.vfs.exists(p):
+            try:
+                with pane.vfs.open(p, "wb"):
+                    pass
+            except OSError as ex:
+                pane.flash(f"create: {ex}")
+                return
+            pane.refresh(keep_cursor_name=name)
+        viewer.edit_file(self.cfg, p, pane.flash)
+
+    def _act_cfg_editor(self, pane):
+        cur = self.cfg.get("editor", {}).get("command", "")
+        cmd = dialogs.ask_text("Configure editor",
+                               "Editor command (e.g. 'gedit' or 'code -w'):",
+                               cur)
+        if cmd is not None:
+            self.cfg.setdefault("editor", {})["command"] = cmd
+            config.update("editor", {"command": cmd})
 
     def _act_app_quit(self, pane):
         self.quit()

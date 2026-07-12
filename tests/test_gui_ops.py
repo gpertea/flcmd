@@ -158,3 +158,46 @@ def test_auto_refresh_external_change(app):
         if not any(e.name == "external.txt" for e in pane.view):
             break
     assert not any(e.name == "external.txt" for e in pane.view)
+
+
+def test_f4_editor_configured(app, monkeypatch):
+    import flcmd.viewer as viewer
+    calls = []
+    monkeypatch.setattr(viewer.subprocess, "Popen",
+                        lambda argv, **k: calls.append(argv))
+    app.cfg["editor"] = {"command": "myedit --flag"}
+    pane = app.left
+    _cursor_to(pane, "alpha.txt")
+    app.dispatch("file.edit", pane)
+    assert calls == [["myedit", "--flag", pane.path + "/alpha.txt"]]
+
+
+def test_f4_editor_prompts_and_saves(app, monkeypatch):
+    import flcmd.viewer as viewer
+    from flcmd import config
+    from flcmd.ui import dialogs
+    calls = []
+    monkeypatch.setattr(viewer.subprocess, "Popen",
+                        lambda argv, **k: calls.append(argv))
+    monkeypatch.setattr(dialogs, "ask_text", lambda *a, **k: "nano")
+    app.cfg.pop("editor", None)
+    pane = app.left
+    _cursor_to(pane, "alpha.txt")
+    app.dispatch("file.edit", pane)
+    assert calls and calls[0][0] == "nano"
+    assert config.load()["editor"]["command"] == "nano"  # persisted to ini
+
+
+def test_shift_f4_creates_and_edits(app, monkeypatch):
+    import flcmd.viewer as viewer
+    from flcmd.ui import dialogs
+    calls = []
+    monkeypatch.setattr(viewer.subprocess, "Popen",
+                        lambda argv, **k: calls.append(argv))
+    monkeypatch.setattr(dialogs, "ask_text", lambda *a, **k: "notes.txt")
+    app.cfg["editor"] = {"command": "ed"}
+    pane = app.left
+    app.dispatch("file.edit_new", pane)
+    assert os.path.exists(pane.path + "/notes.txt")
+    assert pane.current().name == "notes.txt"
+    assert calls == [["ed", pane.path + "/notes.txt"]]

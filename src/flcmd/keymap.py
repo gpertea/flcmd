@@ -55,6 +55,7 @@ DEFAULTS = {
     "sort.size": ["Ctrl+F6"],
     "file.view": ["F3"],
     "file.edit": ["F4"],
+    "file.edit_new": ["Shift+F4"],
     "file.copy": ["F5"],
     "file.move": ["F6"],
     "file.rename": ["F2", "Shift+F6"],
@@ -92,7 +93,9 @@ class Keymap:
         self._map: dict[tuple[int, int], str] = {}
         table = dict(DEFAULTS)
         for action, specs in (overrides or {}).items():
-            table[action] = [specs] if isinstance(specs, str) else specs
+            if isinstance(specs, str):  # ini form: "F3" or "F3, Ctrl+Q"
+                specs = [s.strip() for s in specs.split(",") if s.strip()]
+            table[action] = specs
         for action, specs in table.items():
             for spec in specs:
                 self._map[parse(spec)] = action

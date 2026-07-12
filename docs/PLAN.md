@@ -26,10 +26,17 @@ tests). User review requested at milestones marked [REVIEW].
   size changes of existing files, revisit with inotify later)
 - Still open: same-dir Shift+F5 copy-as, background op queue
 
-## Stage 3 -- viewer + editor
-- viewer/: text (encodings, wrap, search), hex, image modes; F3 opens it;
-  standalone `flcmd-view` entry point
-- F4 external editor (configurable), Shift+F4 new file  [REVIEW]
+## Stage 3 -- viewer + editor [DONE]
+- viewer/: TC Lister equivalent -- text mode (UTF-8 default, ASCII-only
+  option), hex mode, line wrap, case-insensitive search with wraparound
+  (F7/Ctrl+F, F3/Shift+F3), font + size configurable, multi-file n/p;
+  standalone `flcmd-view FILE...`; options persisted immediately
+- F4 external editor only (no internal editor): command configured on
+  first use or via Configuration menu; Shift+F4 creates + edits
+- config: flcmd.ini (configparser, wincmd.ini style) replaces TOML;
+  typed load; [viewer]/[editor]/[window]/[left]/[right]/[keys] sections
+- Still open: image mode (with WLX plugins, stage 6), files > max_mb
+  are truncated (streaming/paging later)  [REVIEW]
 
 ## Stage 4 -- drag and drop [DONE EARLY, after stage 1]
 - Drop IN per pane (FLTK FL_DND_* + text/uri-list paste) -> confirm + copy

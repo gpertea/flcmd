@@ -1,9 +1,10 @@
-"""Settings: TOML file in the platform config dir. Values are flat sections
-of scalars / string lists -- enough for settings and keybindings."""
+"""Settings: flcmd.ini in the platform config dir (configparser format,
+like TC's wincmd.ini). Sections of scalar values; load() parses ints,
+floats and booleans back from their string form."""
 
+import configparser
 import os
 import sys
-import tomllib
 
 from . import paths
 
@@ -21,35 +22,43 @@ def config_dir() -> str:
 
 
 def config_file() -> str:
-    return paths.join(config_dir(), "flcmd.toml")
+    return paths.join(config_dir(), "flcmd.ini")
+
+
+def _parse(s: str):
+    if s.lower() in ("true", "false"):
+        return s.lower() == "true"
+    for conv in (int, float):
+        try:
+            return conv(s)
+        except ValueError:
+            continue
+    return s
 
 
 def load() -> dict:
+    cp = configparser.ConfigParser(interpolation=None)
+    cp.optionxform = str
     try:
-        with open(config_file(), "rb") as f:
-            return tomllib.load(f)
-    except (OSError, tomllib.TOMLDecodeError):
+        cp.read(config_file(), encoding="utf-8")
+    except (OSError, configparser.Error):
         return {}
-
-
-def _fmt(v) -> str:
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, (int, float)):
-        return str(v)
-    if isinstance(v, list):
-        return "[" + ", ".join(_fmt(x) for x in v) + "]"
-    s = str(v).replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{s}"'
+    return {sec: {k: _parse(v) for k, v in cp[sec].items()}
+            for sec in cp.sections()}
 
 
 def save(cfg: dict) -> None:
-    os.makedirs(config_dir(), exist_ok=True)
-    lines = []
+    cp = configparser.ConfigParser(interpolation=None)
+    cp.optionxform = str
     for section, values in cfg.items():
-        lines.append(f"[{section}]")
-        for k, v in values.items():
-            lines.append(f"{k} = {_fmt(v)}")
-        lines.append("")
+        cp[section] = {k: str(v) for k, v in values.items()}
+    os.makedirs(config_dir(), exist_ok=True)
     with open(config_file(), "w", encoding="utf-8", newline="\n") as f:
-        f.write("\n".join(lines))
+        cp.write(f)
+
+
+def update(section: str, values: dict) -> None:
+    """Read-modify-write one section (used for immediate persistence)."""
+    cfg = load()
+    cfg.setdefault(section, {}).update(values)
+    save(cfg)
