@@ -443,7 +443,7 @@ source = { path = "vendor/pyfltk-1.4.5.0-patched.tar.gz" }
 resolution-markers = [
     "sys_platform == 'linux'",
 ]
-sdist = { hash = "sha256:b6eaed58ae1e75c3ffc303548ad02c77619bc7f6a0c472aa5272c685ea79b375" }
+sdist = { hash = "sha256:edcb7c01a4a8f986b9d10e693c3d43700e8495db889bd064524c93e676e39a39" }
 
 [[package]]
 name = "pygments"

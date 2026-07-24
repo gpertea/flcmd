@@ -1,7 +1,7 @@
-pyfltk 1.4.5.0 no-GL build fixes for FLTK 1.4.5 (see docs/INSTALL-LINUX.md).
-Note: upstream file has CRLF line endings; patched file is LF. Apply with
-  patch -l -p1  (or dos2unix first). Vendored tarball also adds 'swig' to
-  build-system.requires in pyproject.toml.
+pyfltk 1.4.5.0 no-GL build fixes for FLTK 1.4.5 + flcmd_display accessor
+(see docs/INSTALL-LINUX.md). Upstream file has CRLF line endings; patched
+file is LF - apply with 'patch -l -p1' or dos2unix first. The vendored
+tarball also adds 'swig' to build-system.requires in pyproject.toml.
 
 --- a/src/Fl_Gl_Stubs.cxx
 +++ b/src/Fl_Gl_Stubs.cxx
@@ -14,7 +14,7 @@ Note: upstream file has CRLF line endings; patched file is LF. Apply with
  
  //static int Fl_Gl_Window::can_do(int, const int *) {{}
  //int Fl_Gl_Window::mode(int, const int *) {return 0;}
-@@ -70,13 +70,29 @@
+@@ -70,13 +70,36 @@
  void gl_measure(const char*, int& x, int& y) {}
  
  void gl_draw_image(const uchar *, int x,int y,int w,int h, int d=3, int ld=0) {}
@@ -52,3 +52,10 @@ Note: upstream file has CRLF line endings; patched file is LF. Apply with
 +void gl_texture_pile_height(int) {}
 +int gl_texture_pile_height() { return 0; }
 +void gl_texture_reset() {}
++
++// flcmd patch: expose FLTK's X11 Display* to ctypes consumers. The
++// fl_display global lives in static libfltk.a whose symbols the Python
++// LDSHARED hides (-Wl,--exclude-libs,ALL); this accessor is compiled as a
++// direct object so it stays exported.
++extern void *fl_display;
++extern "C" void *flcmd_display(void) { return fl_display; }

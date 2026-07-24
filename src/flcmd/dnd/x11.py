@@ -213,10 +213,23 @@ def _drag_cursor(x, dpy, count: int) -> int:
 
 
 def _fltk_display() -> int:
-    """FLTK's Display* -- the fl_display global exported by libfltk."""
+    """FLTK's Display*. Tried in order: the flcmd_display() accessor our
+    patched pyfltk exports (FLTK is linked statically into the extension),
+    the fl_display global of a shared libfltk, and finally libX11's list of
+    open displays (one X connection process-wide -> the head is FLTK's)."""
     global _dpy
     if _dpy:
         return _dpy
+    try:
+        import fltk as _fltk_mod
+        so = C.CDLL(_fltk_mod._fltk.__file__)
+        so.flcmd_display.restype = C.c_void_p
+        d = so.flcmd_display()
+        if d:
+            _dpy = d
+            return _dpy
+    except (OSError, AttributeError, ImportError):
+        pass
     for name in (None, "libfltk.so.1.4", "libfltk.so", "libfltk.1.4.dylib"):
         try:
             d = C.c_void_p.in_dll(C.CDLL(name), "fl_display")
@@ -225,6 +238,13 @@ def _fltk_display() -> int:
                 return _dpy
         except (OSError, ValueError):
             continue
+    try:
+        head = C.c_void_p.in_dll(_xlib(), "_XHeadOfDisplayList")
+        if head.value:
+            _dpy = head.value
+            return _dpy
+    except (OSError, ValueError):
+        pass
     raise RuntimeError("cannot locate FLTK's X display (fl_display)")
 
 
