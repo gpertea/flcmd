@@ -29,7 +29,19 @@ class SftpVFS(VFS):
         self.sftp = session.sftp
 
     def listdir(self, path: str) -> list[DirEntry]:
-        return [_entry(a.filename, a) for a in self.sftp.listdir_attr(path)]
+        out = []
+        for a in self.sftp.listdir_attr(path):
+            e = _entry(a.filename, a)
+            if e.is_link:  # dir symlinks must list as dirs (navigable)
+                try:
+                    t = self.sftp.stat(paths.join(path, a.filename))
+                    e.is_dir = st.S_ISDIR(t.st_mode or 0)
+                    if e.is_dir:
+                        e.size, e.ext = 0, ""
+                except OSError:
+                    pass  # broken link: keep lstat info
+            out.append(e)
+        return out
 
     def stat(self, path: str) -> DirEntry:
         return _entry(paths.basename(path), self.sftp.lstat(path))

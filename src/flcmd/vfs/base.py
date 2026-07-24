@@ -51,8 +51,10 @@ class VFS(ABC):
         raise OSError(f"{self.scheme}: symlinks not supported")
 
     def is_dir(self, path: str) -> bool:
+        """True if path is (or links to) a directory: 'can I chdir into /
+        write into it'. Ops that must not follow links use stat() directly."""
         try:
-            return self.stat(path).is_dir
+            return self.stat_follow(path).is_dir
         except OSError:
             return False
 

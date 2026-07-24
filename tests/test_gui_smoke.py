@@ -163,6 +163,13 @@ def test_cmdline_cd(app):
     assert pane.path == start + "/bdir"
     app._run_command("cd ..")
     assert pane.path == start
+    import os
+    from flcmd import paths as _paths
+    os.symlink(_paths.to_native(start + "/adir"),
+               _paths.to_native(start + "/cdlink"))
+    app._run_command("cd cdlink")
+    assert pane.path == start + "/cdlink"  # cd through a dir symlink
+    app._run_command("cd ..")
     app._run_command("cd /no/such/dir-xyz")
     assert pane.path == start  # unchanged, error flashed
     assert "cd:" in pane.footer.label()

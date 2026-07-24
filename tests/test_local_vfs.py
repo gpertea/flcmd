@@ -42,6 +42,10 @@ def test_symlinks(vfs, sample_tree):
     # lstat-based stat() still sees the link itself (op-safety invariant)
     assert vfs.stat(paths.join(sample_tree, "dlink")).is_link
     assert vfs.readlink(paths.join(sample_tree, "broken")) == "no-such-target"
+    # is_dir follows links: cd/copy-dest checks accept dir symlinks
+    assert vfs.is_dir(paths.join(sample_tree, "dlink"))
+    assert not vfs.is_dir(paths.join(sample_tree, "flink"))
+    assert not vfs.is_dir(paths.join(sample_tree, "broken"))
 
 
 def test_mutations(vfs, sample_tree):
