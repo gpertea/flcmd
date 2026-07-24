@@ -13,7 +13,8 @@ docs/INSTALL-LINUX.md for details and prerequisites):
     scripts/setup.sh
     uv run flcmd
 
-Windows/macOS (pyfltk wheels come from PyPI):
+Windows/macOS (pyfltk wheels come from PyPI; Windows notes, shortcuts and
+test caveats: docs/INSTALL-WINDOWS.md):
 
     uv sync
     uv run flcmd

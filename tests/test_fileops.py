@@ -121,7 +121,8 @@ def test_cancel(vfs, src, dst):
     assert not os.path.exists(dst + "/src/a.txt")
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permissions")
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="chmod 0 not enforced (Windows) or root")
 def test_error_skip(vfs, src, dst):
     os.chmod(src + "/a.txt", 0)
     try:
@@ -134,7 +135,8 @@ def test_error_skip(vfs, src, dst):
         os.chmod(src + "/a.txt", 0o644)
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permissions")
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="chmod 0 not enforced (Windows) or root")
 def test_error_skip_all(vfs, tmp_path, dst):
     d = tmp_path / "s2"
     d.mkdir()
@@ -157,19 +159,27 @@ def linked(tmp_path):
     d = tmp_path / "ln"
     (d / "real").mkdir(parents=True)
     (d / "real" / "f.txt").write_text("payload")
-    os.symlink("real/f.txt", d / "filelink")
-    os.symlink("real", d / "dirlink")
+    try:  # native-sep targets: Windows stores them verbatim
+        os.symlink(os.path.join("real", "f.txt"), d / "filelink")
+    except OSError:
+        pytest.skip("symlinks not available (Windows: needs developer mode)")
+    os.symlink("real", d / "dirlink", target_is_directory=True)
     os.symlink("gone-target", d / "dangling")
     return str(d).replace("\\", "/")
+
+
+def rl(p):
+    """readlink with the target normalized to '/' separators."""
+    return os.readlink(p).replace("\\", "/")
 
 
 def test_copy_links_as_links(vfs, linked, dst):
     ctl = ScriptedCtl()
     copy_op(vfs, [linked + "/filelink", linked + "/dirlink",
                   linked + "/dangling"], vfs, dst, ctl)
-    assert os.readlink(dst + "/filelink") == "real/f.txt"
-    assert os.readlink(dst + "/dirlink") == "real"
-    assert os.readlink(dst + "/dangling") == "gone-target"
+    assert rl(dst + "/filelink") == "real/f.txt"
+    assert rl(dst + "/dirlink") == "real"
+    assert rl(dst + "/dangling") == "gone-target"
     assert not os.path.exists(dst + "/real")  # targets NOT copied
 
 
@@ -186,7 +196,7 @@ def test_copy_links_followed(vfs, linked, dst):
 def test_copy_tree_keeps_inner_links(vfs, linked, dst):
     ctl = ScriptedCtl()
     copy_op(vfs, [linked], vfs, dst, ctl)
-    assert os.readlink(dst + "/ln/filelink") == "real/f.txt"
+    assert rl(dst + "/ln/filelink") == "real/f.txt"
     assert open(dst + "/ln/filelink").read() == "payload"  # relative works
     assert open(dst + "/ln/real/f.txt").read() == "payload"
 
@@ -196,7 +206,7 @@ def test_move_link(vfs, linked, dst):
     ctl = ScriptedCtl()
     copy_op(vfs, [linked + "/filelink"], vfs, dst, ctl, move=True)
     assert not os.path.lexists(linked + "/filelink")
-    assert os.readlink(dst + "/filelink") == "real/f.txt"
+    assert rl(dst + "/filelink") == "real/f.txt"
 
 
 def test_delete_dir_symlink_not_recursive(vfs, linked):

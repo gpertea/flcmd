@@ -47,10 +47,21 @@ class LocalVFS(VFS):
         return _entry(paths.basename(path), os.stat(path), False)
 
     def readlink(self, path: str) -> str:
-        return os.readlink(path)  # raw target, relative links preserved
+        t = os.readlink(path)  # raw target, relative links preserved
+        if paths.IS_WIN:
+            if t.startswith("\\\\?\\"):
+                t = t[4:]
+            t = t.replace("\\", "/")
+        return t
 
-    def symlink(self, target: str, path: str) -> None:
-        os.symlink(target, path)
+    def symlink(self, target: str, path: str, is_dir: bool = False) -> None:
+        # Windows stores the target verbatim and cannot resolve '/' in it;
+        # dir links must also be created as directory symlinks.
+        if paths.IS_WIN:
+            os.symlink(target.replace("/", "\\"), path,
+                       target_is_directory=is_dir)
+        else:
+            os.symlink(target, path)
 
     def open(self, path: str, mode: str = "rb"):
         return open(path, mode)

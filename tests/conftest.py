@@ -51,7 +51,11 @@ def xdisplay():
 
 @pytest.fixture()
 def isolated_config(tmp_path, monkeypatch):
+    # cover all platforms' config roots (XDG on Linux, APPDATA on Windows,
+    # HOME for the macOS/other expanduser fallbacks)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "cfg"))
+    monkeypatch.setenv("HOME", str(tmp_path))
     return tmp_path
 
 

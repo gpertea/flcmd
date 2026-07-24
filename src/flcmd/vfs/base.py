@@ -47,7 +47,7 @@ class VFS(ABC):
     def readlink(self, path: str) -> str:
         raise OSError(f"{self.scheme}: symlinks not supported")
 
-    def symlink(self, target: str, path: str) -> None:
+    def symlink(self, target: str, path: str, is_dir: bool = False) -> None:
         raise OSError(f"{self.scheme}: symlinks not supported")
 
     def is_dir(self, path: str) -> bool:

@@ -172,7 +172,11 @@ def _copy_link(sv, sp, dv, dp, ctl, policy, move: bool):
             return
 
     def relink():
-        dv.symlink(sv.readlink(sp), dp)
+        try:  # dir-link hint (Windows needs directory symlinks)
+            is_dir = sv.stat_follow(sp).is_dir
+        except OSError:
+            is_dir = False
+        dv.symlink(sv.readlink(sp), dp, is_dir)
     if _guard(ctl, policy, sp, relink) and move:
         _guard(ctl, policy, sp, lambda: sv.remove(sp))
     ctl.item_done(sp)

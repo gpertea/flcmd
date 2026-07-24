@@ -68,7 +68,7 @@ def test_roundtrip_copy(rvfs, rtmp, tmp_path):
     from test_fileops import ScriptedCtl
     src = tmp_path / "hello.txt"
     payload = "flcmd sftp roundtrip\n" * 100
-    src.write_text(payload)
+    src.write_text(payload, newline="\n")  # no CRLF translation on Windows
     lv = LocalVFS()
     # local -> remote
     copy_op(lv, [str(src).replace("\\", "/")], rvfs, rtmp, ScriptedCtl())

@@ -76,7 +76,7 @@ class SftpVFS(VFS):
     def readlink(self, path: str) -> str:
         return self.sftp.readlink(path)
 
-    def symlink(self, target: str, path: str) -> None:
+    def symlink(self, target: str, path: str, is_dir: bool = False) -> None:
         self.sftp.symlink(target, path)
 
     def display(self, path: str) -> str:
