@@ -130,4 +130,6 @@ menu + tree editor, locations toolbar. 108 tests green
 - TC binary plugins assume Windows API beyond the plugin ABI (many WLX
   plugins create Win32 child windows) -- embedding needs a real HWND;
   on non-Windows only recompiled/native plugins can work.
-- pyFLTK has no Linux wheels: Linux devs must build FLTK 1.4 (documented).
+- pyFLTK has no Linux wheels: scripts/setup.sh builds a minimal local
+  FLTK 1.4 and installs a patched vendored pyfltk sdist (its no-GL build
+  is broken upstream); full write-up in docs/INSTALL-LINUX.md.

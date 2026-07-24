@@ -1,0 +1,54 @@
+pyfltk 1.4.5.0 no-GL build fixes for FLTK 1.4.5 (see docs/INSTALL-LINUX.md).
+Note: upstream file has CRLF line endings; patched file is LF. Apply with
+  patch -l -p1  (or dos2unix first). Vendored tarball also adds 'swig' to
+  build-system.requires in pyproject.toml.
+
+--- a/src/Fl_Gl_Stubs.cxx
++++ b/src/Fl_Gl_Stubs.cxx
+@@ -40,7 +40,7 @@
+ void Fl_Gl_Window::draw_overlay() {}
+ void Fl_Gl_Window::init() {}
+ 
+-void Fl_Gl_Window::make_overlay() {}
++// FLTK 1.4.5 removed Fl_Gl_Window::make_overlay(); stub deleted (flcmd patch)
+ 
+ //static int Fl_Gl_Window::can_do(int, const int *) {{}
+ //int Fl_Gl_Window::mode(int, const int *) {return 0;}
+@@ -70,13 +70,29 @@
+ void gl_measure(const char*, int& x, int& y) {}
+ 
+ void gl_draw_image(const uchar *, int x,int y,int w,int h, int d=3, int ld=0) {}
+-  void glLoadIdentity( ) {}
+-  void glRecti( int x1, int y1, int x2, int y2 ) {}
+-  void glViewport( int x, int y, int width, int height ) {}
+-  void glClear( int mask ) {}
+-  void glColor3f( float red, float green, float blue ) {}
+-  void glBegin( int mode ) {}
+-  void glEnd( void ) {}
+-  void glVertex3f( float x, float y, float z ) {}
++// flcmd patch: these must have C linkage -- the swig wrapper references
++// them through <GL/gl.h> prototypes (unmangled); glDrawPixels added.
++extern "C" {
++void glLoadIdentity( void ) {}
++void glRecti( int x1, int y1, int x2, int y2 ) {}
++void glViewport( int x, int y, int width, int height ) {}
++void glClear( unsigned int mask ) {}
++void glColor3f( float red, float green, float blue ) {}
++void glBegin( unsigned int mode ) {}
++void glEnd( void ) {}
++void glVertex3f( float x, float y, float z ) {}
++void glDrawPixels( int w, int h, unsigned int fmt, unsigned int type, const void *data ) {}
++}
+ 
+ 
++
++// flcmd patch: stubs required by FLTK 1.4.5 (referenced by the SWIG
++// wrapper but only defined in libfltk_gl, which a no-GL build lacks)
++void Fl_Gl_Window::draw() {}
++int Fl_Gl_Window::handle(int e) { return Fl_Window::handle(e); }
++float Fl_Gl_Window::pixels_per_unit() { return 1.0f; }
++void Fl_Gl_Window::swap_interval(int) {}
++int Fl_Gl_Window::swap_interval() const { return 0; }
++void gl_texture_pile_height(int) {}
++int gl_texture_pile_height() { return 0; }
++void gl_texture_reset() {}

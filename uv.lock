@@ -1,6 +1,10 @@
 version = 1
 revision = 3
 requires-python = ">=3.11"
+resolution-markers = [
+    "sys_platform == 'linux'",
+    "sys_platform != 'linux'",
+]
 
 [[package]]
 name = "bcrypt"
@@ -241,7 +245,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "paramiko" },
-    { name = "pyfltk" },
+    { name = "pyfltk", version = "1.4.5.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
+    { name = "pyfltk", version = "1.4.5.0", source = { path = "vendor/pyfltk-1.4.5.0-patched.tar.gz" }, marker = "sys_platform == 'linux'" },
 ]
 
 [package.dev-dependencies]
@@ -253,7 +258,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "paramiko", specifier = ">=5.0.0" },
-    { name = "pyfltk", specifier = ">=1.4.5.0" },
+    { name = "pyfltk", marker = "sys_platform != 'linux'", specifier = ">=1.4.5.0" },
+    { name = "pyfltk", marker = "sys_platform == 'linux'", path = "vendor/pyfltk-1.4.5.0-patched.tar.gz" },
 ]
 
 [package.metadata.requires-dev]
@@ -411,6 +417,9 @@ wheels = [
 name = "pyfltk"
 version = "1.4.5.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "sys_platform != 'linux'",
+]
 sdist = { url = "https://files.pythonhosted.org/packages/2d/52/367375ffbf92c7a01b78c6b047515971c9db0a087806ee0cd5c43db97f0e/pyfltk-1.4.5.0.tar.gz", hash = "sha256:40359bb281fd8170bc77b660ecfffd98b0787a72dce61a51f90f3bdd106e5abf", size = 270116, upload-time = "2026-05-22T05:32:00.309Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/a6/216d0d49e812c800e38128b7aa03a77c029c8351fe5b37ed566189ab95f9/pyfltk-1.4.5.0-cp311-cp311-macosx_15_0_arm64.whl", hash = "sha256:89c1a78a3a2a9384b31a07a216fa49fd3fc07d9140ffc4e8a812ff0163a3a8b0", size = 1913660, upload-time = "2026-06-12T19:33:33.306Z" },
@@ -426,6 +435,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/26/50/b037875c99bb4f6a9118841b11a33031d127796d0252071a21efdce0d5e0/pyfltk-1.4.5.0-cp314-cp314-macosx_15_0_x86_64.whl", hash = "sha256:5fb2f894417dfcb7ab78c64b1e370dbd8f3ed5c81fabca121dd54e20b42042af", size = 2065463, upload-time = "2026-06-12T19:33:45.935Z" },
     { url = "https://files.pythonhosted.org/packages/a2/f7/61023be067c8ac267982c2a87dc8968533d379d6faa4dcaecc8db5797b50/pyfltk-1.4.5.0-cp314-cp314-win_amd64.whl", hash = "sha256:d63e615bfb7adb6f2398a5c025b4bc2023792e5e69791c49c293b94c304492ed", size = 2497385, upload-time = "2026-05-22T05:33:48.025Z" },
 ]
+
+[[package]]
+name = "pyfltk"
+version = "1.4.5.0"
+source = { path = "vendor/pyfltk-1.4.5.0-patched.tar.gz" }
+resolution-markers = [
+    "sys_platform == 'linux'",
+]
+sdist = { hash = "sha256:b6eaed58ae1e75c3ffc303548ad02c77619bc7f6a0c472aa5272c685ea79b375" }
 
 [[package]]
 name = "pygments"

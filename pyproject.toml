@@ -16,6 +16,14 @@ dependencies = [
 flcmd = "flcmd.app:main"
 flcmd-view = "flcmd.viewer:main"
 
+# Linux: no pyfltk wheels on PyPI, and the PyPI sdist's no-GL stub file
+# does not compile against FLTK 1.4.5 -- use our patched sdist (see
+# docs/INSTALL-LINUX.md and scripts/patches/). Win/mac use PyPI wheels.
+[tool.uv.sources]
+pyfltk = [
+    { path = "vendor/pyfltk-1.4.5.0-patched.tar.gz", marker = "sys_platform == 'linux'" },
+]
+
 [dependency-groups]
 dev = [
     "pillow>=12.3.0",

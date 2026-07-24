@@ -51,10 +51,14 @@ emulating Total Commander functionality and keyboard shortcuts.
 - `tests/` -- pytest; GUI tests need an X display.
 
 ## Build / run / test
-- `uv sync` to set up; `uv run flcmd` to launch.
+- Linux setup: `scripts/setup.sh` (builds a minimal local FLTK 1.4 into
+  ~/.local if missing, then runs `uv sync`); Windows/macOS: plain `uv sync`.
+  `uv run flcmd` to launch. Full Linux install notes: docs/INSTALL-LINUX.md.
+- On Linux pyfltk comes from a patched sdist vendored in `vendor/`
+  ([tool.uv.sources] marker) -- upstream's no-GL build is broken; the patch
+  lives in scripts/patches/. FLTK is built X11-only, no GL, bundled
+  jpeg/png/zlib, static PIC libs.
 - GUI tests use a separate display via Xvfb -- never the user's display:
   `xvfb-run -a uv run pytest` or the `xdisplay` fixture in tests/conftest.py
-  (spawns its own Xvfb). Headless logic tests run with plain `uv run pytest -m
-  "not gui"`.
-- FLTK 1.4.5 is installed to /usr/local (built from source); pyfltk builds
-  against it via `fltk-config`.
+  (spawns its own Xvfb; tests skip if Xvfb is not installed). Headless logic
+  tests run with plain `uv run pytest -m "not gui"`.

@@ -7,6 +7,14 @@ applications, and TC-compatible plugin support.
 
 ## Run
 
+Linux (one-time setup builds a minimal local FLTK 1.4; see
+docs/INSTALL-LINUX.md for details and prerequisites):
+
+    scripts/setup.sh
+    uv run flcmd
+
+Windows/macOS (pyfltk wheels come from PyPI):
+
     uv sync
     uv run flcmd
 
@@ -20,8 +28,10 @@ GUI tests (uses its own Xvfb display, never yours):
 
     xvfb-run -a uv run pytest
 
-Linux needs FLTK 1.4 built from source for pyfltk (see docs/PLAN.md);
-Windows/macOS get pyfltk wheels from PyPI.
+GUI tests need `xvfb` installed (`sudo apt install xvfb`); otherwise
+they skip. Linux pyfltk is built from a patched sdist vendored in
+`vendor/` against a local minimal FLTK 1.4 -- docs/INSTALL-LINUX.md
+documents the whole setup and every pitfall it works around.
 
 Working today: dual panes with TC keybindings, copy/move/delete with
 progress + conflict handling, inline rename, Lister-style viewer (text/
