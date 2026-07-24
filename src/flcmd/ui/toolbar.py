@@ -5,7 +5,7 @@ right-click edits or deletes the button."""
 
 import fltk
 
-from .. import bookmarks, paths
+from .. import bookmarks, config, paths
 from . import esc
 
 TOOLBAR_H = 26
@@ -31,12 +31,14 @@ class _LocBtn(fltk.Fl_Button):
 
 
 class LocationsToolbar(fltk.Fl_Group):
-    def __init__(self, x, y, w, h, on_go, host_win):
+    def __init__(self, x, y, w, h, on_go, host_win, nav_cb=None):
         super().__init__(x, y, w, h)
         self.box(fltk.FL_THIN_UP_BOX)
         self.on_go = on_go          # callable(location) -> chdir active pane
         self.host_win = host_win
+        self.nav_cb = nav_cb        # callable(-1|+1) -> history back/forward
         self._btns: list[_LocBtn] = []
+        self._nav_btns: list[fltk.Fl_Button] = []
         self.end()
         self.rebuild()
 
@@ -45,13 +47,27 @@ class LocationsToolbar(fltk.Fl_Group):
         return bookmarks.load()["toolbar"]
 
     def rebuild(self):
-        for b in self._btns:
+        for b in self._btns + self._nav_btns:
             self.remove(b)
             fltk.Fl.delete_widget(b)
         self._btns = []
+        self._nav_btns = []
         self.begin()
         bx = self.x() + BTN_PAD
         by = self.y() + (self.h() - BTN_H) // 2
+        if self.nav_cb and bool(config.load().get("toolbar", {}).get("nav", True)):
+            for sym, d, tip in (("@<-", -1, "Back (Alt+Left)"),
+                                ("@->", +1, "Forward (Alt+Right)")):
+                b = fltk.Fl_Button(bx, by, 28, BTN_H)
+                b.copy_label(sym)  # '@' kept: FLTK arrow symbols
+                b.box(fltk.FL_THIN_UP_BOX)
+                b.labelsize(11)
+                b.clear_visible_focus()
+                b.copy_tooltip(tip)
+                b.callback(lambda wid, dd=d: self.nav_cb(dd))
+                self._nav_btns.append(b)
+                bx += 28 + 2
+            bx += BTN_PAD
         for i, item in enumerate(self._buttons()):
             cap = esc(item.get("caption", "?"))
             fltk.fl_font(fltk.FL_HELVETICA, 11)

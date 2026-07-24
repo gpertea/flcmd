@@ -27,7 +27,14 @@ class LocalVFS(VFS):
         with os.scandir(path) as it:
             for de in it:
                 try:
-                    out.append(_entry(de.name, de.stat(follow_symlinks=False), de.is_symlink()))
+                    is_link = de.is_symlink()
+                    s = de.stat(follow_symlinks=False)
+                    if is_link:
+                        try:  # dir symlinks must list as dirs (navigable)
+                            s = de.stat(follow_symlinks=True)
+                        except OSError:
+                            pass  # broken link: keep lstat info
+                    out.append(_entry(de.name, s, is_link))
                 except OSError:
                     out.append(DirEntry(name=de.name))
         return out

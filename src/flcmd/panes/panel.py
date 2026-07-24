@@ -52,18 +52,32 @@ def table_handle(tbl, event, sup) -> int:
         tbl._push_xy = (fltk.Fl.event_x(), fltk.Fl.event_y())
         tbl._dragging = False
         tbl._cell_pushed = False
+        hit = getattr(tbl, "header_hit", None)  # thumbs grid has no header
+        tbl._hdr_push = hit(fltk.Fl.event_x(), fltk.Fl.event_y()) if hit else None
         return sup(event)
-    if event == fltk.FL_DRAG and tbl._push_xy and not tbl._dragging:
-        dx = abs(fltk.Fl.event_x() - tbl._push_xy[0])
-        dy = abs(fltk.Fl.event_y() - tbl._push_xy[1])
-        if dx + dy > 6:
-            tbl._dragging = True
-            tbl._push_xy = None
-            tbl.pane.start_drag()
-            fltk.Fl.pushed(None)
-            tbl._dragging = False
+    if event == fltk.FL_DRAG:
+        # header pushes (sort click or column-border resize) belong to
+        # Fl_Table; only a drag that started on a cell is a file drag-out
+        if getattr(tbl, "_hdr_push", None) or not tbl._cell_pushed:
+            return sup(event)
+        if tbl._push_xy and not tbl._dragging:
+            dx = abs(fltk.Fl.event_x() - tbl._push_xy[0])
+            dy = abs(fltk.Fl.event_y() - tbl._push_xy[1])
+            if dx + dy > 6:
+                tbl._dragging = True
+                tbl._push_xy = None
+                tbl.pane.start_drag()
+                fltk.Fl.pushed(None)
+                tbl._dragging = False
         return 1
     if event == fltk.FL_RELEASE:
+        hp, tbl._hdr_push = getattr(tbl, "_hdr_push", None), None
+        if hp and tbl._push_xy:
+            col, near = hp
+            dx = abs(fltk.Fl.event_x() - tbl._push_xy[0])
+            dy = abs(fltk.Fl.event_y() - tbl._push_xy[1])
+            if col >= 0 and not near and dx + dy < 5:
+                tbl.pane.sort(("name", "ext", "size", "date")[col])
         tbl._push_xy = None
         return sup(event) or 1
     if event in (fltk.FL_DND_ENTER, fltk.FL_DND_DRAG, fltk.FL_DND_RELEASE):
@@ -76,6 +90,14 @@ def table_handle(tbl, event, sup) -> int:
             return 1
         return sup(event)
     return sup(event)
+
+
+def draw_link_badge(x0: int, yc: int):
+    """Tiny NE 'shortcut' arrow marking a symlink (drawn after the name)."""
+    fltk.fl_color(theme.LINK_BADGE)
+    fltk.fl_line(x0, yc + 3, x0 + 5, yc - 2)          # shaft, pointing NE
+    fltk.fl_line(x0 + 5, yc - 2, x0 + 2, yc - 2)      # arrowhead
+    fltk.fl_line(x0 + 5, yc - 2, x0 + 5, yc + 1)
 
 
 def fmt_date(e: DirEntry) -> str:
@@ -101,6 +123,9 @@ class FileTable(fltk.Fl_Table_Row):
         self._push_xy = None
         self._dragging = False
         self._cell_pushed = False
+        self._hdr_push = None
+        self._user_w: dict[int, int] = {}  # user-resized ext/size/date widths
+        self._set_w: list[int] = []
         self.end()
 
     def inner_w(self) -> int:
@@ -111,9 +136,43 @@ class FileTable(fltk.Fl_Table_Row):
         return max(1, (self.h() - HDR_H - 4) // ROW_H)
 
     def _autosize_cols(self):
-        name_w = max(80, self.inner_w() - COL_EXT - COL_SIZE - COL_DATE)
-        for i, cw in enumerate((name_w, COL_EXT, COL_SIZE, COL_DATE)):
+        ew = self._user_w.get(1, COL_EXT)
+        sw = self._user_w.get(2, COL_SIZE)
+        dw = self._user_w.get(3, COL_DATE)
+        name_w = max(80, self.inner_w() - ew - sw - dw)
+        for i, cw in enumerate((name_w, ew, sw, dw)):
             self.col_width(i, cw)
+        self._set_w = [name_w, ew, sw, dw]
+
+    def _capture_widths(self):
+        """After an interactive column resize, remember the user's widths so
+        refresh/relayout (which autosizes Name to fill) keeps them."""
+        if not self._set_w:
+            return
+        cur = [self.col_width(c) for c in range(4)]
+        exp = self._set_w
+        if cur == exp:
+            return
+        if cur[0] != exp[0]:  # name|ext border dragged: shift into ext
+            self._user_w[1] = max(20, exp[0] + exp[1] - cur[0])
+        for c in (1, 2, 3):
+            if cur[c] != exp[c]:
+                self._user_w[c] = max(20, cur[c])
+        self._autosize_cols()
+        self.redraw()
+
+    def header_hit(self, ex, ey):
+        """(col, near_border) when (ex, ey) is in the column header band."""
+        if not (self.y() + 2 <= ey <= self.y() + 2 + HDR_H):
+            return None
+        x0 = self.x() + 2
+        for c in range(4):
+            wc = self.col_width(c)
+            if ex < x0 + wc:
+                near = (c > 0 and ex - x0 < 6) or (x0 + wc) - ex < 6
+                return (c, near)
+            x0 += wc
+        return None
 
     def resize(self, x, y, w, h):
         super().resize(x, y, w, h)
@@ -147,7 +206,10 @@ class FileTable(fltk.Fl_Table_Row):
         table_click(self)
 
     def handle(self, event):
-        return table_handle(self, event, super().handle)
+        r = table_handle(self, event, super().handle)
+        if event == fltk.FL_RELEASE:
+            self._capture_widths()
+        return r
 
     def draw_cell(self, ctx, r=0, c=0, x=0, y=0, w=0, h=0):
         if ctx == _T.CONTEXT_STARTPAGE:
@@ -163,6 +225,13 @@ class FileTable(fltk.Fl_Table_Row):
             fltk.fl_color(theme.TEXT)
             fltk.fl_draw(("Name", "Ext", "Size", "Date")[c], x + 4, y, w - 8, h,
                          fltk.FL_ALIGN_LEFT)
+            if self.pane.sort_key == ("name", "ext", "size", "date")[c]:
+                ax, ay = x + w - 14, y + (h - 5) // 2
+                fltk.fl_color(fltk.FL_DARK2)
+                if self.pane.sort_rev:   # descending: down arrow
+                    fltk.fl_polygon(ax, ay, ax + 9, ay, ax + 4, ay + 5)
+                else:                    # ascending: up arrow
+                    fltk.fl_polygon(ax, ay + 5, ax + 9, ay + 5, ax + 4, ay)
             fltk.fl_pop_clip()
             return
         if ctx != _T.CONTEXT_CELL or r >= len(self.pane.view):
@@ -187,6 +256,10 @@ class FileTable(fltk.Fl_Table_Row):
             if e.is_dir and e.name != "..":
                 nm = "[" + nm + "]"
             fltk.fl_draw(nm, x + 4, y, w - 8, h, fltk.FL_ALIGN_LEFT, None, 0)
+            if e.is_link:
+                bx = x + 4 + int(fltk.fl_width(nm)) + 5
+                if bx < x + w - 8:
+                    draw_link_badge(bx, y + h // 2)
         elif c == 1:
             fltk.fl_draw(e.ext, x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT, None, 0)
         elif c == 2:
@@ -294,6 +367,9 @@ class FilePane(fltk.Fl_Group):
         self.thumbs = None                # ThumbView, created on demand
         self.preview = None               # PreviewView, created on demand
         self.on_cursor = None             # app hook: cursor moved
+        self.on_path = None               # app hook: path/listing changed
+        self.hist_back: list[str] = []    # location history (bookmark form)
+        self.hist_fwd: list[str] = []
         self.sort_key = "name"
         self.sort_rev = False
         self._search = ""
@@ -343,12 +419,35 @@ class FilePane(fltk.Fl_Group):
         if mt != self._mtime:
             self.refresh()
 
-    def set_path(self, path: str, cursor_name: str | None = None):
+    def location(self) -> str | None:
+        """Current spot in portable bookmark form (None inside archives)."""
+        from .. import bookmarks
+        if self.vfs.scheme not in ("file", "sftp"):
+            return None
+        return bookmarks.make_location(self.vfs, self.path)
+
+    def record_hist(self):
+        loc = self.location()
+        if loc and (not self.hist_back or self.hist_back[-1] != loc):
+            self.hist_back.append(loc)
+            del self.hist_back[:-50]
+        self.hist_fwd.clear()
+
+    def set_path(self, path: str, cursor_name: str | None = None,
+                 record: bool = True):
+        if record:
+            self.record_hist()
         self.path = paths.canon(path)
         self.selected.clear()
         self.dir_sizes.clear()
         self.cursor = 0
         self.refresh(keep_cursor_name=cursor_name)
+        # new directory: scroll back to the top, then keep cursor in view
+        self.table.top_row(0)
+        if self.thumbs:
+            self.thumbs.top_row(0)
+        self.active_view().ensure_visible(self.cursor)
+        self.redraw_view()
 
     def _sort(self):
         keyf = {
@@ -357,8 +456,13 @@ class FilePane(fltk.Fl_Group):
             "size": lambda e: e.size,
             "date": lambda e: e.mtime,
         }[self.sort_key]
-        dirs = sorted((e for e in self.entries if e.is_dir),
-                      key=lambda e: e.name.lower())
+        # dirs follow name/date ordering (TC-style); ext/size keep them by name
+        if self.sort_key in ("name", "date"):
+            dirs = sorted((e for e in self.entries if e.is_dir),
+                          key=keyf, reverse=self.sort_rev)
+        else:
+            dirs = sorted((e for e in self.entries if e.is_dir),
+                          key=lambda e: e.name.lower())
         files = sorted((e for e in self.entries if not e.is_dir),
                        key=keyf, reverse=self.sort_rev)
         top = paths.is_root(self.path) and not self.vfs_stack
@@ -382,6 +486,8 @@ class FilePane(fltk.Fl_Group):
         self.header.copy_label(" " + esc(self.vfs.display(self.path)))
         self._update_footer()
         self.table.redraw()
+        if self.on_path:
+            self.on_path(self)
 
     # -- cursor / selection ------------------------------------------------
     def current(self) -> DirEntry | None:
@@ -495,19 +601,23 @@ class FilePane(fltk.Fl_Group):
         self.redraw_view()
 
     # -- nested VFS (archives, later sftp-in-archive etc.) --------------------
-    def push_vfs(self, new_vfs: VFS, start_path: str):
+    def push_vfs(self, new_vfs: VFS, start_path: str, record: bool = True):
+        if record:
+            self.record_hist()
         e = self.current()
         self.vfs_stack.append((self.vfs, self.path, e.name if e else None))
         self.vfs = new_vfs
-        self.set_path(start_path)
+        self.set_path(start_path, record=False)
 
-    def pop_vfs(self) -> bool:
+    def pop_vfs(self, record: bool = True) -> bool:
         if not self.vfs_stack:
             return False
+        if record:
+            self.record_hist()
         close = getattr(self.vfs, "close", None)
         old_vfs, old_path, cursor = self.vfs_stack.pop()
         self.vfs = old_vfs
-        self.set_path(old_path, cursor_name=cursor)
+        self.set_path(old_path, cursor_name=cursor, record=False)
         if close:
             try:
                 close()

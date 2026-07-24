@@ -32,6 +32,7 @@ class App:
         self.keymap = Keymap(self.cfg.get("keys"))
         self._viewers: list = []
 
+        from .ui.cmdline import CMD_H, CmdLine
         from .ui.toolbar import LocationsToolbar, TOOLBAR_H
         self.win = fltk.Fl_Double_Window(w, h, "flcmd")
         self.menubar = fltk.Fl_Menu_Bar(0, 0, w, MENU_H)
@@ -41,11 +42,15 @@ class App:
         tb_h = TOOLBAR_H if self.show_toolbar else 0
         self.toolbar = LocationsToolbar(
             0, MENU_H, w, TOOLBAR_H,
-            lambda loc: self._go_location(self.active(), loc), self.win)
+            lambda loc: self._go_location(self.active(), loc), self.win,
+            nav_cb=lambda d: self.dispatch("nav.back" if d < 0 else "nav.fwd",
+                                           self.active()))
         if not self.show_toolbar:
             self.toolbar.hide()
+        self.show_cmdline = bool(self.cfg.get("cmdline", {}).get("show", True))
+        cmd_h = CMD_H if self.show_cmdline else 0
         top = MENU_H + tb_h
-        ph = h - top - FKEY_H
+        ph = h - top - FKEY_H - cmd_h
         self.tile = fltk.Fl_Tile(0, top, w, ph)
         vfs = LocalVFS()
         lp = self._start_path(vfs, left_path, "left")
@@ -58,6 +63,11 @@ class App:
             p.sort_key = self.cfg.get(side, {}).get("sort", "name")
             p.sort_rev = bool(self.cfg.get(side, {}).get("rev", False))
             p.refresh()
+
+        self.cmdline = CmdLine(0, h - FKEY_H - CMD_H, w, CMD_H,
+                               self._run_command, self._focus_active_pane)
+        if not self.show_cmdline:
+            self.cmdline.hide()
 
         bar = fltk.Fl_Group(0, h - FKEY_H, w, FKEY_H)
         bw = w // len(FKEYS)
@@ -76,6 +86,7 @@ class App:
         self._watching = True
         fltk.Fl.add_timeout(1.0, self._watch_tick)
         self.left.on_cursor = self.right.on_cursor = self._cursor_moved
+        self.left.on_path = self.right.on_path = self._path_changed
         self._active = self.left
         self.set_active_pane(self.left)
 
@@ -112,7 +123,9 @@ class App:
         mb.add("&Show/&List View", 0, cb, "pane.list")
         mb.add("&Show/&Thumbnail View\tCtrl+Shift+F1", 0, cb, "pane.thumbs")
         mb.add("&Show/&Quick View Panel\tCtrl+Q", 0, cb, "pane.quickview")
-        mb.add("&Show/&Locations Toolbar", 0, cb, "toolbar.toggle",
+        mb.add("&Show/&Locations Toolbar", 0, cb, "toolbar.toggle")
+        mb.add("&Show/Navigation &Buttons", 0, cb, "toolbar.nav_toggle")
+        mb.add("&Show/&Command Line", 0, cb, "cmdline.toggle",
                fltk.FL_MENU_DIVIDER)
         from .panes.thumbs import TILE_SIZES
         for ts in TILE_SIZES:
@@ -150,6 +163,14 @@ class App:
             self._active = pane
         pane.set_active(True)
         self.other(pane).set_active(False)
+        self.cmdline.set_prompt(pane.vfs.display(pane.path))
+
+    def _path_changed(self, pane):
+        if pane is self._active:
+            self.cmdline.set_prompt(pane.vfs.display(pane.path))
+
+    def _focus_active_pane(self):
+        self.active().active_view().take_focus()
 
     def other(self, pane: FilePane) -> FilePane:
         return self.right if pane is self.left else self.left
@@ -379,11 +400,17 @@ class App:
             pane.flash(str(ex))
             return
         kind = "link" if st.is_link else "directory" if st.is_dir else "file"
+        target = ""
+        if st.is_link:
+            try:
+                target = f"\ntarget: {pane.vfs.readlink(paths.join(pane.path, e.name))}"
+            except OSError:
+                pass
         size = pane.dir_sizes.get(e.name, st.size) if st.is_dir else st.size
         mtime = datetime.fromtimestamp(st.mtime).strftime("%Y-%m-%d %H:%M:%S")
         dialogs.ask_buttons(
             "Properties",
-            f"{e.name}\ntype: {kind}\nsize: {size:,} bytes\n"
+            f"{e.name}\ntype: {kind}{target}\nsize: {size:,} bytes\n"
             f"modified: {mtime}\nmode: {st_mod.filemode(st.mode)}",
             ["OK"])
 
@@ -419,7 +446,25 @@ class App:
 
     def _act_file_view(self, pane):
         e = pane.current()
-        if not e or e.is_dir:
+        if not e:
+            return
+        if e.is_link:
+            p = paths.join(pane.path, e.name)
+            try:
+                tgt = pane.vfs.readlink(p)
+            except OSError as ex:
+                pane.flash(f"readlink: {ex}")
+                return
+            if e.is_dir:  # dir symlink: F3 reports the target
+                pane.flash(f"{e.name} -> {tgt}")
+                return
+            try:
+                pane.vfs.stat_follow(p)
+            except OSError:  # dangling link: nothing to view
+                pane.flash(f"broken link: {e.name} -> {tgt}")
+                return
+            # file symlink: fall through and view the target's content
+        if e.is_dir:
             return
         p = self._materialize(pane, e.name)
         if not p:
@@ -459,23 +504,81 @@ class App:
     def _act_bookmarks_add(self, pane):
         self._bookmark_add_current(pane)
 
-    def _act_toolbar_toggle(self, pane):
+    def _relayout(self):
+        from .ui.cmdline import CMD_H
         from .ui.toolbar import TOOLBAR_H
-        self.show_toolbar = not self.show_toolbar
-        config.update("toolbar", {"show": self.show_toolbar})
+        w, h = self.win.w(), self.win.h()
         top = MENU_H + (TOOLBAR_H if self.show_toolbar else 0)
-        if self.show_toolbar:
-            self.toolbar.show()
-        else:
-            self.toolbar.hide()
-        self.tile.resize(0, top, self.win.w(), self.win.h() - top - FKEY_H)
+        cmd_h = CMD_H if self.show_cmdline else 0
+        self.toolbar.show() if self.show_toolbar else self.toolbar.hide()
+        self.cmdline.show() if self.show_cmdline else self.cmdline.hide()
+        self.tile.resize(0, top, w, h - top - FKEY_H - cmd_h)
+        self.cmdline.resize(0, h - FKEY_H - cmd_h, w, CMD_H)
         self.win.redraw()
 
+    def _act_toolbar_toggle(self, pane):
+        self.show_toolbar = not self.show_toolbar
+        self.cfg.setdefault("toolbar", {})["show"] = self.show_toolbar
+        config.update("toolbar", {"show": self.show_toolbar})
+        self._relayout()
+
+    def _act_toolbar_nav_toggle(self, pane):
+        show = not bool(config.load().get("toolbar", {}).get("nav", True))
+        self.cfg.setdefault("toolbar", {})["nav"] = show
+        config.update("toolbar", {"nav": show})
+        self.toolbar.rebuild()
+
+    def _act_cmdline_toggle(self, pane):
+        self.show_cmdline = not self.show_cmdline
+        self.cfg.setdefault("cmdline", {})["show"] = self.show_cmdline
+        config.update("cmdline", {"show": self.show_cmdline})
+        self._relayout()
+
+    # -- command line ----------------------------------------------------------
+    def _run_command(self, text: str):
+        pane = self.active()
+        if text == "cd" or text.startswith("cd "):
+            self._cmd_cd(pane, text[2:].strip())
+            return
+        import subprocess
+        cwd = paths.to_native(pane.path) if pane.vfs.scheme == "file" \
+            else os.path.expanduser("~")
+        try:
+            subprocess.Popen(text, shell=True, cwd=cwd,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        except OSError as e:
+            pane.flash(f"exec: {e}")
+            return
+        pane.flash(f"started: {text}")
+
+    def _cmd_cd(self, pane, arg: str):
+        import posixpath
+        if not arg:
+            tgt = paths.canon(os.path.expanduser("~")) \
+                if pane.vfs.scheme == "file" else "/"
+        else:
+            if pane.vfs.scheme == "file":
+                arg = os.path.expandvars(os.path.expanduser(arg))
+            arg = paths.canon(arg)
+            absolute = arg.startswith("/") or paths.is_root(arg) \
+                or (len(arg) > 1 and arg[1] == ":")
+            tgt = arg if absolute else paths.join(pane.path, arg)
+            tgt = paths.canon(posixpath.normpath(tgt))  # resolve . and ..
+        if pane.vfs.is_dir(tgt):
+            pane.set_path(tgt)
+        else:
+            pane.flash(f"cd: no such directory: {tgt}")
+
     # -- bookmarks (folder shortcuts menu) + locations toolbar -----------------
-    def _go_location(self, pane, location: str):
-        """chdir the pane to a bookmarked location (local path or sftp URL)."""
+    def _go_location(self, pane, location: str, record: bool = True):
+        """chdir the pane to a bookmarked location (local path or sftp URL).
+        History is recorded once up front; internal steps never record."""
         from .ssh import SSHSession
         from .vfs.sftp import SftpVFS
+        if record:
+            pane.record_hist()
         if location.startswith("sftp://"):
             rest = location[len("sftp://"):]
             host, _, p = rest.partition("/")
@@ -483,7 +586,7 @@ class App:
             # reuse an existing sftp session on this pane to the same host
             if (pane.vfs.scheme == "sftp"
                     and pane.vfs.session.label == host):
-                pane.set_path(rpath)
+                pane.set_path(rpath, record=False)
                 return
             try:
                 sess = SSHSession(host)
@@ -491,15 +594,36 @@ class App:
                 pane.flash(f"connect {host}: {e}")
                 return
             while pane.vfs.scheme == "sftp":
-                pane.pop_vfs()
-            pane.push_vfs(SftpVFS(sess), rpath if p else sess.home)
+                pane.pop_vfs(record=False)
+            pane.push_vfs(SftpVFS(sess), rpath if p else sess.home,
+                          record=False)
         else:
             while pane.vfs.scheme != "file":
-                pane.pop_vfs()
+                pane.pop_vfs(record=False)
             if pane.vfs.is_dir(location):
-                pane.set_path(location)
+                pane.set_path(location, record=False)
             else:
                 pane.flash(f"no such directory: {location}")
+
+    def _act_nav_back(self, pane):
+        if not pane.hist_back:
+            pane.flash("history: nothing to go back to")
+            return
+        cur = pane.location()
+        loc = pane.hist_back.pop()
+        if cur:
+            pane.hist_fwd.append(cur)
+        self._go_location(pane, loc, record=False)
+
+    def _act_nav_fwd(self, pane):
+        if not pane.hist_fwd:
+            pane.flash("history: nothing to go forward to")
+            return
+        cur = pane.location()
+        loc = pane.hist_fwd.pop()
+        if cur:
+            pane.hist_back.append(cur)
+        self._go_location(pane, loc, record=False)
 
     def _act_bookmarks_menu(self, pane):
         """Folder-shortcuts popup (double-click on the panel header)."""

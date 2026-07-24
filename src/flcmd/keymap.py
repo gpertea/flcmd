@@ -41,6 +41,8 @@ DEFAULTS = {
     "nav.open": ["Enter", "KPEnter"],
     "nav.up": ["BackSpace", "Ctrl+PgUp"],
     "nav.open_archive": ["Ctrl+PgDn"],
+    "nav.back": ["Alt+Left"],
+    "nav.fwd": ["Alt+Right"],
     "nav.cursor_to_left": ["Ctrl+Left"],
     "nav.cursor_to_right": ["Ctrl+Right"],
     "sel.toggle": ["Insert"],

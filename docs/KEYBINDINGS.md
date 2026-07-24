@@ -8,6 +8,7 @@ config. Stage column shows when each lands.
 | Tab | Switch active pane | 1 |
 | Enter | Open dir / run or open file | 1 |
 | Backspace, Ctrl+PgUp | Parent directory | 1 |
+| Alt+Left / Alt+Right | History back / forward (also toolbar arrows) | 1 |
 | Ins | Toggle select, move down | 1 |
 | Space | Toggle select (+ dir size) | 1 |
 | Num+ / Num- / Num* | Select/unselect by glob, invert | 1 |
