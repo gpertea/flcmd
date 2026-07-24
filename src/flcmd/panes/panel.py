@@ -92,14 +92,6 @@ def table_handle(tbl, event, sup) -> int:
     return sup(event)
 
 
-def draw_link_badge(x0: int, yc: int):
-    """Tiny NE 'shortcut' arrow marking a symlink (drawn after the name)."""
-    fltk.fl_color(theme.LINK_BADGE)
-    fltk.fl_line(x0, yc + 3, x0 + 5, yc - 2)          # shaft, pointing NE
-    fltk.fl_line(x0 + 5, yc - 2, x0 + 2, yc - 2)      # arrowhead
-    fltk.fl_line(x0 + 5, yc - 2, x0 + 5, yc + 1)
-
-
 def fmt_date(e: DirEntry) -> str:
     if not e.mtime:
         return ""
@@ -252,14 +244,13 @@ class FileTable(fltk.Fl_Table_Row):
         # text is never inverted: black, or red when explicitly selected
         fltk.fl_color(theme.SEL_TEXT if e.name in self.pane.selected else theme.TEXT)
         if c == 0:
+            from .icons import ICON_W, entry_icon
+            entry_icon(e).draw(x + 2, y + (h - ICON_W) // 2)
             nm = e.name if e.is_dir else paths.splitext(e.name)[0]
             if e.is_dir and e.name != "..":
                 nm = "[" + nm + "]"
-            fltk.fl_draw(nm, x + 4, y, w - 8, h, fltk.FL_ALIGN_LEFT, None, 0)
-            if e.is_link:
-                bx = x + 4 + int(fltk.fl_width(nm)) + 5
-                if bx < x + w - 8:
-                    draw_link_badge(bx, y + h // 2)
+            fltk.fl_draw(nm, x + ICON_W + 6, y, w - ICON_W - 10, h,
+                         fltk.FL_ALIGN_LEFT, None, 0)
         elif c == 1:
             fltk.fl_draw(e.ext, x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT, None, 0)
         elif c == 2:

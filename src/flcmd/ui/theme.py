@@ -20,4 +20,3 @@ HEADER_EDGE = _c(208, 214, 222)
 PATH_ACTIVE = _c(153, 180, 209)
 PATH_IDLE = _c(191, 205, 219)
 FOOTER_BG = _c(240, 240, 240)
-LINK_BADGE = _c(70, 110, 180)     # symlink arrow glyph next to the name
