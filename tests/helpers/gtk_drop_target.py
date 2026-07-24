@@ -7,6 +7,7 @@ import sys
 import gi
 
 gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")  # else Gdk may resolve to 4.0 first
 from gi.repository import Gdk, Gtk  # noqa: E402
 
 out = sys.argv[1]

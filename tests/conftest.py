@@ -16,14 +16,24 @@ def _free_display() -> int:
     raise RuntimeError("no free X display")
 
 
+def _xserver_cmd(n: int) -> list[str] | None:
+    if shutil.which("Xvfb"):
+        return ["Xvfb", f":{n}", "-screen", "0", "1280x800x24",
+                "-nolisten", "tcp"]
+    if shutil.which("Xvnc"):  # tigervnc fallback: same headless job
+        return ["Xvnc", f":{n}", "-geometry", "1280x800", "-depth", "24",
+                "-SecurityTypes", "None", "-localhost"]
+    return None
+
+
 @pytest.fixture(scope="session")
 def xdisplay():
-    if not shutil.which("Xvfb"):
-        pytest.skip("Xvfb not installed")
     n = _free_display()
+    cmd = _xserver_cmd(n)
+    if cmd is None:
+        pytest.skip("no virtual X server (install xvfb or tigervnc)")
     proc = subprocess.Popen(
-        ["Xvfb", f":{n}", "-screen", "0", "1280x800x24", "-nolisten", "tcp"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     old = os.environ.get("DISPLAY")
     os.environ["DISPLAY"] = f":{n}"
     for _ in range(50):
