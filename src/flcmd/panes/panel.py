@@ -1,6 +1,7 @@
 """File pane: path header + file table + selection footer.
 All keys resolve through the app keymap via the dispatch callable."""
 
+import sys
 import time
 from datetime import datetime
 from fnmatch import fnmatch
@@ -19,6 +20,15 @@ ROW_H = 18
 COL_EXT, COL_SIZE, COL_DATE = 44, 84, 104
 
 _UP = DirEntry(name="..", is_dir=True)
+
+
+def _shift_down() -> bool:
+    """Shift state at drop time. FLTK's win32 drop target does not update
+    Fl modifiers during OLE drags, so ask the OS directly there."""
+    if sys.platform == "win32":
+        import ctypes
+        return bool(ctypes.windll.user32.GetKeyState(0x10) & 0x8000)
+    return bool(fltk.Fl.event_state() & fltk.FL_SHIFT)
 
 
 # -- input handling shared by the list table and the thumbnail grid ---------
@@ -696,28 +706,39 @@ class FilePane(fltk.Fl_Group):
             w = fltk.Fl.next_window(w)
 
     def on_drop(self, text: str):
-        from .. import ops
-        from ..ui import dialogs, progress
         files = []
         for line in text.splitlines():
             line = line.strip()
             if line.startswith("file://"):
                 files.append(paths.from_uri(line))
-            elif line.startswith("/"):
-                files.append(paths.canon(line))
+            elif (line.startswith("/") or line.startswith("\\\\") or
+                  (len(line) > 2 and line[1] == ":" and line[2] in "/\\")):
+                files.append(paths.canon(line))  # POSIX, UNC or drive path
         files = [f for f in files if f and paths.parent(f) != self.path]
         if not files:
             return
+        move = _shift_down()  # sample NOW: Shift+drop means move
+        # Defer past the source's modal DoDragDrop loop: on Windows the
+        # drop is delivered synchronously inside it, and a dialog here
+        # would hang the source app until dismissed.
+        fltk.Fl.add_timeout(0.0,
+                            lambda data=None: self._drop_copy(files, move))
+
+    def _drop_copy(self, files, move=False):
+        from .. import ops
+        from ..ui import dialogs, progress
         if not isinstance(self.vfs, LocalVFS):
             self.flash("drop: only local targets for now")
             return
-        if not dialogs.confirm("Copy", f"Copy {len(files)} item(s) to\n"
-                               f"{self.path} ?", yes="Copy"):
+        verb = "Move" if move else "Copy"
+        if not dialogs.confirm(verb, f"{verb} {len(files)} item(s) to\n"
+                               f"{self.path} ?", yes=verb):
             return
         ctl = ops.OpControl()
         progress.run_operation(
-            "Copy", f"Copy {len(files)} item(s) -> {self.path}", ctl,
-            lambda: ops.copy_op(self.vfs, files, self.vfs, self.path, ctl))
+            verb, f"{verb} {len(files)} item(s) -> {self.path}", ctl,
+            lambda: ops.copy_op(self.vfs, files, self.vfs, self.path, ctl,
+                                move=move))
         self.refresh()
 
     # -- keyboard ------------------------------------------------------------

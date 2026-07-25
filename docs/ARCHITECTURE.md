@@ -26,6 +26,7 @@ src/flcmd/
                 standalone via `flcmd-view` / `python -m flcmd.viewer`;
                 hosts WLX viewer plugins
   dnd/          drag OUT to other apps: x11.py (XDND, ctypes), win32.py
+                (shell OLE drag; see docs/NOTES-pyfltk-win32-dnd.md)
                 (OLE, pywin32), macos.py (pyobjc). Drop IN handled by FLTK
                 events in panes.
   plugins/      plugin host
