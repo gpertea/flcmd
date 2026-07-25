@@ -122,6 +122,10 @@ def table_handle(tbl, event, sup) -> int:
             tbl._we_cursor = False
             tbl.window().cursor(fltk.FL_CURSOR_DEFAULT)
         return sup(event)
+    if event == fltk.FL_MOUSEWHEEL:
+        r = sup(event)
+        tbl.pane.sync_scrollbar()
+        return r
     if event in (fltk.FL_DND_ENTER, fltk.FL_DND_DRAG, fltk.FL_DND_RELEASE):
         return 1
     if event == fltk.FL_PASTE:
@@ -185,9 +189,19 @@ class FileTable(fltk.Fl_Table_Row):
         self._hdr_push = None
         self._user_w: dict[int, int] = {}  # user-resized column widths
         self.end()
+        # Unparent Fl_Table's own scrollbars for good: it re-shows them on
+        # every internal recalc, h-scrolling is never wanted, and the pane
+        # provides the (TC-style) vertical scrollbar. Scroll state still
+        # runs through the (now never-drawn) widgets, which stay owned by
+        # Fl_Table. Real children order: [vscrollbar, hscrollbar, scroll]
+        # (Fl_Table.children()/child() only expose user-added widgets).
+        fltk.Fl_Group.remove(self, 1)
+        fltk.Fl_Group.remove(self, 0)
 
     def inner_w(self) -> int:
-        # reserve scrollbar space only when the scrollbar is showing
+        # mirror Fl_Table's own inner-width math: it reserves the
+        # scrollbar strip (where the pane's scrollbar overlays) whenever
+        # the rows overflow
         sb = self.scrollbar_size() or fltk.Fl.scrollbar_size()
         need = self.rows() > self.vis_rows()
         return self.w() - 4 - (sb if need else 0)
@@ -215,8 +229,8 @@ class FileTable(fltk.Fl_Table_Row):
             if ex < x0 + wc:
                 if c > 0 and ex - x0 <= 5:
                     return (c, c - 1)       # near left border
-                if (x0 + wc) - ex <= 5:
-                    return (c, c)           # near right border
+                if (x0 + wc) - ex <= 5 and c < 4:
+                    return (c, c)  # near right border (last col: no resizer)
                 return (c, None)
             x0 += wc
         return None
@@ -248,6 +262,7 @@ class FileTable(fltk.Fl_Table_Row):
             self.top_row(idx)
         elif idx >= r1 + vis:
             self.top_row(idx - vis + 1)
+        self.pane.sync_scrollbar()
 
     def _on_click(self, wid):
         table_click(self)
@@ -256,11 +271,8 @@ class FileTable(fltk.Fl_Table_Row):
         return table_handle(self, event, super().handle)
 
     def draw(self):
-        self._place_vscroll()
         super().draw()
-        if self._place_vscroll():  # Fl_Table re-placed it during draw
-            self.redraw()
-        # continue the header band across the scrollbar strip (TC look)
+        # continue the header band across any leftover strip (TC look)
         strip_x = self.x() + 2 + sum(self.col_width(c) for c in range(5))
         band_r = self.x() + self.w() - 2
         if strip_x < band_r:
@@ -269,26 +281,6 @@ class FileTable(fltk.Fl_Table_Row):
             fltk.fl_rectf(strip_x, y0, band_r - strip_x, HDR_H)
             fltk.fl_color(theme.HEADER_EDGE)
             fltk.fl_line(strip_x, y0 + HDR_H - 1, band_r - 1, y0 + HDR_H - 1)
-
-    def _place_vscroll(self) -> bool:
-        """Start the vertical scrollbar below the header row (Fl_Table
-        spans it over the full table height). True if it was moved."""
-        sb = self.scrollbar_size() or fltk.Fl.scrollbar_size()
-        moved = False
-        for i in range(self.children()):
-            c = self.child(i)
-            if not c.visible():
-                continue
-            if c.w() == sb and c.h() > sb:  # v-scrollbar
-                top = self.y() + 2 + HDR_H
-                bot = c.y() + c.h()
-                if c.y() < top < bot:
-                    c.resize(c.x(), top, c.w(), bot - top)
-                    moved = True
-            elif c.h() == sb and c.w() > sb:  # h-scrollbar: crop, TC-like
-                c.hide()
-                moved = True
-        return moved
 
     def draw_cell(self, ctx, r=0, c=0, x=0, y=0, w=0, h=0):
         if ctx == _T.CONTEXT_STARTPAGE:
@@ -458,6 +450,13 @@ class FilePane(fltk.Fl_Group):
         self.is_active = False
         self.header = PaneHeader(x, y, w, HDR_H, self)
         self.table = FileTable(x, y + HDR_H, w, h - HDR_H - FOOT_H, self)
+        # pane-owned vertical scrollbar, TC-style: right edge, starting
+        # below the column header band (Fl_Table's own bars stay hidden)
+        self.vbar = fltk.Fl_Scrollbar(x + w - 12, y + HDR_H, 12, 10)
+        self.vbar.linesize(1)
+        self.vbar.when(fltk.FL_WHEN_CHANGED)
+        self.vbar.callback(self._vbar_cb)
+        self.vbar.hide()
         self.footer = fltk.Fl_Box(x, y + h - FOOT_H, w, FOOT_H)
         self.footer.box(fltk.FL_FLAT_BOX)
         self.footer.color(theme.FOOTER_BG)
@@ -466,6 +465,29 @@ class FilePane(fltk.Fl_Group):
         self.resizable(self.table)
         self.end()
         self.refresh()
+
+    # -- scrollbar ---------------------------------------------------------
+    def _vbar_cb(self, wid):
+        self.table.top_row(int(wid.value()))
+        self.table.redraw()
+
+    def sync_scrollbar(self):
+        # overlays the strip Fl_Table reserves; below the header band
+        sb = fltk.Fl.scrollbar_size()
+        rows, vis = len(self.view), self.table.vis_rows()
+        need = self.mode == "list" and rows > vis
+        if need:
+            self.vbar.resize(self.x() + self.w() - sb,
+                             self.y() + 2 * HDR_H + 2, sb,
+                             self.h() - 2 * HDR_H - FOOT_H - 2)
+            self.vbar.value(self.table.top_row(), vis, 0, rows)
+            self.vbar.show()
+        else:
+            self.vbar.hide()
+
+    def resize(self, x, y, w, h):
+        super().resize(x, y, w, h)
+        self.sync_scrollbar()
 
     # -- listing ----------------------------------------------------------
     def refresh(self, keep_cursor_name: str | None = None):
@@ -562,6 +584,7 @@ class FilePane(fltk.Fl_Group):
     def _sync(self):
         self.table.rows(len(self.view))
         self.table.row_height_all(ROW_H)  # rows() resets heights to default
+        self.sync_scrollbar()
         self.table._autosize_cols()
         if self.thumbs:
             self.thumbs.relayout()
