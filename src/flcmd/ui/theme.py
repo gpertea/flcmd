@@ -27,6 +27,7 @@ def apply_scheme():
     standard box types remapped to their 1px thin variants (the gtk+
     scheme's gradient 'pillow' bevels waste rows and match no platform)."""
     fltk.Fl.scheme("none")
+    fltk.Fl.background(240, 240, 240)  # match FOOTER_BG / Win button face
     for full, thin in ((fltk.FL_UP_BOX, fltk.FL_THIN_UP_BOX),
                        (fltk.FL_DOWN_BOX, fltk.FL_THIN_DOWN_BOX),
                        (fltk.FL_UP_FRAME, fltk.FL_THIN_UP_FRAME),
