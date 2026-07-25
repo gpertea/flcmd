@@ -18,6 +18,7 @@ _T = fltk.Fl_Table
 HDR_H = 22
 FOOT_H = 20
 ROW_H = 18
+PAD = 2  # sunken frame inset of the file list
 COL_EXT, COL_SIZE, COL_DATE = 44, 84, 104
 COL_ATTR = 46 if sys.platform == "win32" else 78  # "rahs" vs "rwxr-xr-x"
 COLS = ("name", "ext", "size", "date", "attr")
@@ -169,78 +170,94 @@ def fmt_attr(e: DirEntry) -> str:
     return ""
 
 
-class FileTable(fltk.Fl_Table_Row):
+class FileList(fltk.Fl_Box):
+    """Custom-drawn file list: column header band + rows, vertical-only
+    scrolling (the pane owns the scrollbar). Replaces Fl_Table, whose
+    scrollbar and damage machinery fought every TC behavior needed here
+    (kept the old FileTable's public surface: rows/top_row/vis_rows/
+    col_width/header_hit/ensure_visible/nav_key/cell_index)."""
+
     def __init__(self, x, y, w, h, pane):
         super().__init__(x, y, w, h)
         self.pane = pane
-        self.type(fltk.Fl_Table_Row.SELECT_NONE)
-        self.cols(5)
-        self.col_header(1)
-        self.col_header_height(HDR_H)
-        self.col_resize(1)
-        self.row_header(0)
-        self.row_height_all(ROW_H)
-        self.color(theme.ROW_BG)  # dead space below last row matches rows
-        self.callback(self._on_click)
-        self.when(fltk.FL_WHEN_CHANGED | fltk.FL_WHEN_RELEASE)
+        self.box(fltk.FL_NO_BOX)  # everything is drawn here
+        self.set_visible_focus()  # keyboard focus, no ring drawn
+        self._rows = 0
+        self._top = 0
+        self._user_w: dict[int, int] = {}  # user-resized column widths
+        self._widths = [80, COL_EXT, COL_SIZE, COL_DATE, COL_ATTR]
         self._push_xy = None
         self._dragging = False
         self._cell_pushed = False
         self._hdr_push = None
-        self._user_w: dict[int, int] = {}  # user-resized column widths
-        self.end()
-        # Unparent Fl_Table's own scrollbars for good: it re-shows them on
-        # every internal recalc, h-scrolling is never wanted, and the pane
-        # provides the (TC-style) vertical scrollbar. Scroll state still
-        # runs through the (now never-drawn) widgets, which stay owned by
-        # Fl_Table. Real children order: [vscrollbar, hscrollbar, scroll]
-        # (Fl_Table.children()/child() only expose user-added widgets).
-        fltk.Fl_Group.remove(self, 1)
-        fltk.Fl_Group.remove(self, 0)
+        self._col_drag = None
+        self._we_cursor = False
 
-    def inner_w(self) -> int:
-        # mirror Fl_Table's own inner-width math: it reserves the
-        # scrollbar strip (where the pane's scrollbar overlays) whenever
-        # the rows overflow
-        sb = self.scrollbar_size() or fltk.Fl.scrollbar_size()
-        need = self.rows() > self.vis_rows()
-        return self.w() - 4 - (sb if need else 0)
+    # -- geometry ----------------------------------------------------------
+    def rows(self, n=None):
+        if n is None:
+            return self._rows
+        self._rows = n
+        self._top = min(self._top, max(0, n - self.vis_rows()))
+        self._autosize_cols()
+
+    def top_row(self, n=None):
+        if n is None:
+            return self._top
+        self._top = max(0, min(n, max(0, self._rows - self.vis_rows())))
+        self.redraw()
 
     def vis_rows(self) -> int:
-        return max(1, (self.h() - HDR_H - 4) // ROW_H)
+        return max(1, (self.h() - HDR_H - 2 * PAD) // ROW_H)
+
+    def inner_w(self) -> int:
+        need = self._rows > self.vis_rows()
+        return self.w() - 2 * PAD - (fltk.Fl.scrollbar_size() if need else 0)
+
+    def col_width(self, c, w=None):
+        if w is None:
+            return self._widths[c]
+        self._widths[c] = max(20, w)
+        self.redraw()
 
     def _autosize_cols(self):
         """Name fills whatever the fixed columns leave over."""
         fixed = [self._user_w.get(c, d) for c, d in
                  ((1, COL_EXT), (2, COL_SIZE), (3, COL_DATE), (4, COL_ATTR))]
-        name_w = max(80, self.inner_w() - sum(fixed))
-        for i, cw in enumerate([name_w] + fixed):
-            self.col_width(i, cw)
-
-    def header_hit(self, ex, ey):
-        """(col, border) when (ex, ey) is in the column header band;
-        border is the column whose width a resize drag would change
-        (None when not within the 5px grab zone of a border)."""
-        if not (self.y() + 2 <= ey <= self.y() + 2 + HDR_H):
-            return None
-        x0 = self.x() + 2
-        for c in range(5):
-            wc = self.col_width(c)
-            if ex < x0 + wc:
-                if c > 0 and ex - x0 <= 5:
-                    return (c, c - 1)       # near left border
-                if (x0 + wc) - ex <= 5 and c < 4:
-                    return (c, c)  # near right border (last col: no resizer)
-                return (c, None)
-            x0 += wc
-        return None
+        self._widths = [max(80, self.inner_w() - sum(fixed))] + fixed
+        self.redraw()
 
     def resize(self, x, y, w, h):
         super().resize(x, y, w, h)
         self._autosize_cols()
 
-    def cell_index(self, r: int, c: int) -> int:
+    def cell_index(self, r: int, c: int = 0) -> int:
         return r
+
+    def row_at(self, ey: int) -> int:
+        top_y = self.y() + PAD + HDR_H
+        if ey < top_y:
+            return -1
+        r = self._top + (ey - top_y) // ROW_H
+        return r if r < self._rows else -1
+
+    def header_hit(self, ex, ey):
+        """(col, border) when (ex, ey) is in the column header band;
+        border is the column a resize drag would change (None when not
+        within the 5px grab zone; the last column has no right border)."""
+        if not (self.y() + PAD <= ey <= self.y() + PAD + HDR_H):
+            return None
+        x0 = self.x() + PAD
+        for c in range(5):
+            wc = self._widths[c]
+            if ex < x0 + wc:
+                if c > 0 and ex - x0 <= 5:
+                    return (c, c - 1)
+                if (x0 + wc) - ex <= 5 and c < 4:
+                    return (c, c)
+                return (c, None)
+            x0 += wc
+        return None
 
     def nav_key(self, key: int) -> bool:
         m = self._NAV.get(key)
@@ -256,91 +273,201 @@ class FileTable(fltk.Fl_Table_Row):
     }
 
     def ensure_visible(self, idx: int):
-        r1 = self.top_row()
         vis = self.vis_rows()
-        if idx < r1:
+        if idx < self._top:
             self.top_row(idx)
-        elif idx >= r1 + vis:
+        elif idx >= self._top + vis:
             self.top_row(idx - vis + 1)
         self.pane.sync_scrollbar()
 
-    def _on_click(self, wid):
-        table_click(self)
-
-    def handle(self, event):
-        return table_handle(self, event, super().handle)
-
+    # -- drawing -----------------------------------------------------------
     def draw(self):
-        super().draw()
-        # continue the header band across any leftover strip (TC look)
-        strip_x = self.x() + 2 + sum(self.col_width(c) for c in range(5))
-        band_r = self.x() + self.w() - 2
-        if strip_x < band_r:
-            y0 = self.y() + 2
-            fltk.fl_color(theme.HEADER_BG)
-            fltk.fl_rectf(strip_x, y0, band_r - strip_x, HDR_H)
-            fltk.fl_color(theme.HEADER_EDGE)
-            fltk.fl_line(strip_x, y0 + HDR_H - 1, band_r - 1, y0 + HDR_H - 1)
+        x, y, w, h = self.x(), self.y(), self.w(), self.h()
+        fltk.fl_push_clip(x, y, w, h)
+        fltk.fl_color(theme.ROW_BG)
+        fltk.fl_rectf(x + 1, y + 1, w - 2, h - 2)
+        fltk.fl_font(fltk.FL_HELVETICA, 12)
+        self._draw_header()
+        cy, bottom = y + PAD + HDR_H, y + h - PAD
+        r = self._top
+        while cy < bottom:
+            if r < min(self._rows, len(self.pane.view)):
+                self._draw_row(r, cy)
+                cy += ROW_H
+                r += 1
+            else:
+                break
+        fltk.fl_draw_box(fltk.FL_THIN_DOWN_FRAME, x, y, w, h,
+                         fltk.FL_BACKGROUND_COLOR)
+        fltk.fl_pop_clip()
 
-    def draw_cell(self, ctx, r=0, c=0, x=0, y=0, w=0, h=0):
-        if ctx == _T.CONTEXT_STARTPAGE:
-            fltk.fl_font(fltk.FL_HELVETICA, 12)
-            return
-        if ctx == _T.CONTEXT_COL_HEADER:
-            fltk.fl_push_clip(x, y, w, h)
-            fltk.fl_color(theme.HEADER_BG)
-            fltk.fl_rectf(x, y, w, h)
+    def _draw_header(self):
+        x0, y0 = self.x() + PAD, self.y() + PAD
+        bw = self.w() - 2 * PAD
+        fltk.fl_color(theme.HEADER_BG)
+        fltk.fl_rectf(x0, y0, bw, HDR_H)
+        cx = x0
+        for c in range(5):
+            wc = self._widths[c]
+            fltk.fl_push_clip(cx, y0, min(wc, x0 + bw - cx), HDR_H)
             fltk.fl_color(theme.HEADER_EDGE)
-            fltk.fl_line(x, y + h - 1, x + w - 1, y + h - 1)
-            fltk.fl_line(x + w - 1, y + 2, x + w - 1, y + h - 3)
+            fltk.fl_line(cx + wc - 1, y0 + 2, cx + wc - 1, y0 + HDR_H - 3)
             fltk.fl_color(theme.TEXT)
-            fltk.fl_draw(COL_TITLES[c], x + 4, y, w - 8, h,
+            fltk.fl_draw(COL_TITLES[c], cx + 4, y0, wc - 8, HDR_H,
                          fltk.FL_ALIGN_LEFT)
             if self.pane.sort_key == COLS[c]:
-                ax, ay = x + w - 14, y + (h - 5) // 2
+                ax, ay = cx + wc - 14, y0 + (HDR_H - 5) // 2
                 fltk.fl_color(fltk.FL_DARK2)
                 if self.pane.sort_rev:   # descending: down arrow
                     fltk.fl_polygon(ax, ay, ax + 9, ay, ax + 4, ay + 5)
                 else:                    # ascending: up arrow
                     fltk.fl_polygon(ax, ay + 5, ax + 9, ay + 5, ax + 4, ay)
             fltk.fl_pop_clip()
-            return
-        if ctx != _T.CONTEXT_CELL or r >= len(self.pane.view):
-            return
+            cx += wc
+            if cx >= x0 + bw:
+                break
+        fltk.fl_color(theme.HEADER_EDGE)
+        fltk.fl_line(x0, y0 + HDR_H - 1, x0 + bw - 1, y0 + HDR_H - 1)
+
+    def _draw_row(self, r, ry):
         e = self.pane.view[r]
         cursor = r == self.pane.cursor
         focused = self.pane.is_active
-        fltk.fl_push_clip(x, y, w, h)
+        x0 = self.x() + PAD
+        iw = self.w() - 2 * PAD
         if cursor and focused:
             fltk.fl_color(theme.CURSOR_BG)
         else:
             fltk.fl_color(theme.ROW_BG if r % 2 == 0 else theme.ROW_BG_ALT)
-        fltk.fl_rectf(x, y, w, h)
+        fltk.fl_rectf(x0, ry, iw, ROW_H)
         if cursor and not focused:  # inactive pane: outline instead of fill
             fltk.fl_color(theme.CURSOR_EDGE)
-            fltk.fl_line(x, y, x + w - 1, y)
-            fltk.fl_line(x, y + h - 1, x + w - 1, y + h - 1)
+            fltk.fl_line(x0, ry, x0 + iw - 1, ry)
+            fltk.fl_line(x0, ry + ROW_H - 1, x0 + iw - 1, ry + ROW_H - 1)
         # text is never inverted: black, or red when explicitly selected
-        fltk.fl_color(theme.SEL_TEXT if e.name in self.pane.selected else theme.TEXT)
-        if c == 0:
-            from .icons import ICON_W, entry_icon
-            entry_icon(e).draw(x + 2, y + (h - ICON_W) // 2)
-            nm = e.name if e.is_dir else paths.splitext(e.name)[0]
-            if e.is_dir and e.name != "..":
-                nm = "[" + nm + "]"
-            nm = fit_name(nm, w - ICON_W - 10)
-            fltk.fl_draw(nm, x + ICON_W + 6, y, w - ICON_W - 10, h,
-                         fltk.FL_ALIGN_LEFT, None, 0)
-        elif c == 1:
-            fltk.fl_draw(e.ext, x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT, None, 0)
-        elif c == 2:
-            fltk.fl_draw(self.pane.size_text(e), x + 2, y, w - 6, h,
-                         fltk.FL_ALIGN_RIGHT)
-        elif c == 3:
-            fltk.fl_draw(fmt_date(e), x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT)
-        else:
-            fltk.fl_draw(fmt_attr(e), x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT)
-        fltk.fl_pop_clip()
+        color = theme.SEL_TEXT if e.name in self.pane.selected else theme.TEXT
+        cx = x0
+        for c in range(5):
+            wc = self._widths[c]
+            fltk.fl_push_clip(cx, ry, min(wc, x0 + iw - cx), ROW_H)
+            fltk.fl_color(color)
+            if c == 0:
+                from .icons import ICON_W, entry_icon
+                entry_icon(e).draw(cx + 2, ry + (ROW_H - ICON_W) // 2)
+                nm = e.name if e.is_dir else paths.splitext(e.name)[0]
+                if e.is_dir and e.name != "..":
+                    nm = "[" + nm + "]"
+                nm = fit_name(nm, wc - ICON_W - 10)
+                fltk.fl_draw(nm, cx + ICON_W + 6, ry, wc - ICON_W - 10, ROW_H,
+                             fltk.FL_ALIGN_LEFT, None, 0)
+            elif c == 1:
+                fltk.fl_draw(e.ext, cx + 2, ry, wc - 4, ROW_H,
+                             fltk.FL_ALIGN_LEFT, None, 0)
+            elif c == 2:
+                fltk.fl_draw(self.pane.size_text(e), cx + 2, ry, wc - 6,
+                             ROW_H, fltk.FL_ALIGN_RIGHT)
+            elif c == 3:
+                fltk.fl_draw(fmt_date(e), cx + 2, ry, wc - 4, ROW_H,
+                             fltk.FL_ALIGN_LEFT)
+            else:
+                fltk.fl_draw(fmt_attr(e), cx + 2, ry, wc - 4, ROW_H,
+                             fltk.FL_ALIGN_LEFT)
+            fltk.fl_pop_clip()
+            cx += wc
+            if cx >= x0 + iw:
+                break
+
+    # -- events ------------------------------------------------------------
+    def handle(self, event):
+        pane = self.pane
+        if event == fltk.FL_FOCUS:
+            pane.dispatch("pane.activate", pane)
+            return 1
+        if event == fltk.FL_UNFOCUS:
+            return 1  # active state is app-owned; don't dim on focus-steal
+        if event in (fltk.FL_ENTER, fltk.FL_LEAVE):
+            return 1
+        if event == fltk.FL_MOVE:
+            hp = self.header_hit(fltk.Fl.event_x(), fltk.Fl.event_y())
+            if hp is not None and hp[1] is not None:
+                # every move: the window-level handler resets the cursor
+                self.window().cursor(fltk.FL_CURSOR_WE)
+                self._we_cursor = True
+            elif self._we_cursor:
+                self._we_cursor = False
+                self.window().cursor(fltk.FL_CURSOR_DEFAULT)
+            return 1
+        if (event == fltk.FL_PUSH
+                and fltk.Fl.event_button() == fltk.FL_LEFT_MOUSE):
+            self._push_xy = (fltk.Fl.event_x(), fltk.Fl.event_y())
+            self._dragging = False
+            self._cell_pushed = False
+            self._hdr_push = self.header_hit(*self._push_xy)
+            if self._hdr_push:
+                if self._hdr_push[1] is not None:  # border: start a resize
+                    b = self._hdr_push[1]
+                    self._col_drag = (b, fltk.Fl.event_x(), self._widths[b])
+                return 1
+            self.take_focus()
+            idx = self.row_at(fltk.Fl.event_y())
+            if idx >= 0:
+                self._cell_pushed = True
+                pane.on_mouse_push(idx)
+                if fltk.Fl.event_clicks():
+                    pane.dispatch("nav.open", pane)
+            return 1
+        if event == fltk.FL_DRAG:
+            if self._col_drag:
+                # TC semantics: resize the column left of the border; the
+                # columns to the right keep their widths and shift
+                b, sx, sw = self._col_drag
+                self.col_width(b, max(20, sw + fltk.Fl.event_x() - sx))
+                if b > 0:
+                    self._user_w[b] = self._widths[b]
+                return 1
+            if self._cell_pushed and self._push_xy and not self._dragging:
+                dx = abs(fltk.Fl.event_x() - self._push_xy[0])
+                dy = abs(fltk.Fl.event_y() - self._push_xy[1])
+                if dx + dy > 6:
+                    self._dragging = True
+                    self._push_xy = None
+                    pane.start_drag()
+                    fltk.Fl.pushed(None)
+                    self._dragging = False
+            return 1
+        if event == fltk.FL_RELEASE:
+            if self._col_drag:
+                b = self._col_drag[0]
+                self._col_drag = None
+                if b == 0:  # a Name drag shifts the difference into Ext
+                    rest = sum(self._user_w.get(c, d) for c, d in
+                               ((2, COL_SIZE), (3, COL_DATE), (4, COL_ATTR)))
+                    self._user_w[1] = max(
+                        20, self.inner_w() - self._widths[0] - rest)
+                # re-fill Name so the last column hugs the right edge
+                self._autosize_cols()
+            hp, self._hdr_push = self._hdr_push, None
+            if hp and self._push_xy:
+                col, border = hp
+                dx = abs(fltk.Fl.event_x() - self._push_xy[0])
+                dy = abs(fltk.Fl.event_y() - self._push_xy[1])
+                if border is None and dx + dy < 5:
+                    pane.sort(COLS[col])
+            self._push_xy = None
+            return 1
+        if event == fltk.FL_MOUSEWHEEL:
+            self.top_row(self._top + 3 * fltk.Fl.event_dy())
+            pane.sync_scrollbar()
+            return 1
+        if event in (fltk.FL_DND_ENTER, fltk.FL_DND_DRAG, fltk.FL_DND_RELEASE):
+            return 1
+        if event == fltk.FL_PASTE:
+            pane.on_drop(fltk.Fl.event_text())
+            return 1
+        if event == fltk.FL_KEYDOWN:
+            if pane.on_key():
+                return 1
+        return super().handle(event)
 
 
 class PaneHeader(fltk.Fl_Box):
@@ -449,7 +576,7 @@ class FilePane(fltk.Fl_Group):
         self._search_t = 0.0
         self.is_active = False
         self.header = PaneHeader(x, y, w, HDR_H, self)
-        self.table = FileTable(x, y + HDR_H, w, h - HDR_H - FOOT_H, self)
+        self.table = FileList(x, y + HDR_H, w, h - HDR_H - FOOT_H, self)
         # pane-owned vertical scrollbar, TC-style: right edge, starting
         # below the column header band (Fl_Table's own bars stay hidden)
         self.vbar = fltk.Fl_Scrollbar(x + w - 12, y + HDR_H, 12, 10)
@@ -583,9 +710,7 @@ class FilePane(fltk.Fl_Group):
 
     def _sync(self):
         self.table.rows(len(self.view))
-        self.table.row_height_all(ROW_H)  # rows() resets heights to default
         self.sync_scrollbar()
-        self.table._autosize_cols()
         if self.thumbs:
             self.thumbs.relayout()
         self.header.copy_label(" " + esc(self.vfs.display(self.path)))
@@ -750,7 +875,7 @@ class FilePane(fltk.Fl_Group):
             return
         self.set_cursor(self.cursor)  # ensure the row is scrolled into view
         t = self.table
-        y = t.y() + HDR_H + (self.cursor - t.top_row()) * ROW_H
+        y = t.y() + PAD + HDR_H + (self.cursor - t.top_row()) * ROW_H
         inp = _RenameInput(t.x() + 2, y, t.col_width(0) + t.col_width(1),
                            ROW_H + 4, self, e.name)
         self.add(inp)
