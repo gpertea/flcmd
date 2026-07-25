@@ -14,6 +14,7 @@ class DirEntry:
     is_link: bool = False
     mode: int = 0
     ext: str = field(default="", compare=False)
+    attr: str = field(default="", compare=False)  # display attrs (win32)
 
 
 class VFS(ABC):

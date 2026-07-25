@@ -10,6 +10,11 @@ from .base import VFS, DirEntry
 
 def _entry(name: str, s: os.stat_result, is_link: bool) -> DirEntry:
     is_dir = st.S_ISDIR(s.st_mode)
+    attr = ""
+    fa = getattr(s, "st_file_attributes", None)
+    if fa is not None:  # Windows: TC-style "rahs" flags
+        attr = (("r" if fa & 0x01 else "-") + ("a" if fa & 0x20 else "-")
+                + ("h" if fa & 0x02 else "-") + ("s" if fa & 0x04 else "-"))
     return DirEntry(
         name=name,
         size=0 if is_dir else s.st_size,
@@ -18,6 +23,7 @@ def _entry(name: str, s: os.stat_result, is_link: bool) -> DirEntry:
         is_link=is_link,
         mode=s.st_mode,
         ext="" if is_dir else paths.splitext(name)[1],
+        attr=attr,
     )
 
 

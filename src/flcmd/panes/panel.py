@@ -5,6 +5,7 @@ import sys
 import time
 from datetime import datetime
 from fnmatch import fnmatch
+from stat import filemode
 
 import fltk
 
@@ -18,6 +19,9 @@ HDR_H = 22
 FOOT_H = 20
 ROW_H = 18
 COL_EXT, COL_SIZE, COL_DATE = 44, 84, 104
+COL_ATTR = 46 if sys.platform == "win32" else 78  # "rahs" vs "rwxr-xr-x"
+COLS = ("name", "ext", "size", "date", "attr")
+COL_TITLES = ("Name", "Ext", "Size", "Date", "Attr")
 
 _UP = DirEntry(name="..", is_dir=True)
 
@@ -65,15 +69,20 @@ def table_handle(tbl, event, sup) -> int:
         hit = getattr(tbl, "header_hit", None)  # thumbs grid has no header
         tbl._hdr_push = hit(fltk.Fl.event_x(), fltk.Fl.event_y()) if hit else None
         if tbl._hdr_push and tbl._hdr_push[1] is not None:
-            # our own column-border drag (wider grab zone than Fl_Table's)
+            # our own column-border drag (wider grab zone than Fl_Table's):
+            # TC semantics -- resize the column LEFT of the border, columns
+            # to the right keep their widths and shift
             b = tbl._hdr_push[1]
             tbl._col_drag = (b, fltk.Fl.event_x(), tbl.col_width(b))
             return 1
         return sup(event)
     if event == fltk.FL_DRAG and getattr(tbl, "_col_drag", None):
         b, sx, sw = tbl._col_drag
-        tbl.col_width(b, max(20, sw + fltk.Fl.event_x() - sx))
-        tbl._capture_widths()
+        new = max(20, sw + fltk.Fl.event_x() - sx)  # overflow crops, TC-like
+        tbl.col_width(b, new)
+        if b > 0:  # Name refills on relayout; the rest are user-set
+            tbl._user_w[b] = new
+        tbl.redraw()
         return 1
     if event == fltk.FL_DRAG:
         # header pushes (sort click or column-border resize) belong to
@@ -98,7 +107,7 @@ def table_handle(tbl, event, sup) -> int:
             dx = abs(fltk.Fl.event_x() - tbl._push_xy[0])
             dy = abs(fltk.Fl.event_y() - tbl._push_xy[1])
             if border is None and dx + dy < 5:
-                tbl.pane.sort(("name", "ext", "size", "date")[col])
+                tbl.pane.sort(COLS[col])
         tbl._push_xy = None
         return sup(event) or 1
     if event == fltk.FL_MOVE:
@@ -148,12 +157,20 @@ def fmt_date(e: DirEntry) -> str:
     return datetime.fromtimestamp(e.mtime).strftime("%Y-%m-%d %H:%M")
 
 
+def fmt_attr(e: DirEntry) -> str:
+    if e.attr:
+        return e.attr           # win32 "rahs" flags from the VFS
+    if e.mode:
+        return filemode(e.mode)[1:]  # POSIX rwx string
+    return ""
+
+
 class FileTable(fltk.Fl_Table_Row):
     def __init__(self, x, y, w, h, pane):
         super().__init__(x, y, w, h)
         self.pane = pane
         self.type(fltk.Fl_Table_Row.SELECT_NONE)
-        self.cols(4)
+        self.cols(5)
         self.col_header(1)
         self.col_header_height(HDR_H)
         self.col_resize(1)
@@ -166,42 +183,25 @@ class FileTable(fltk.Fl_Table_Row):
         self._dragging = False
         self._cell_pushed = False
         self._hdr_push = None
-        self._user_w: dict[int, int] = {}  # user-resized ext/size/date widths
-        self._set_w: list[int] = []
+        self._user_w: dict[int, int] = {}  # user-resized column widths
         self.end()
 
     def inner_w(self) -> int:
+        # reserve scrollbar space only when the scrollbar is showing
         sb = self.scrollbar_size() or fltk.Fl.scrollbar_size()
-        return self.w() - sb - 4
+        need = self.rows() > self.vis_rows()
+        return self.w() - 4 - (sb if need else 0)
 
     def vis_rows(self) -> int:
         return max(1, (self.h() - HDR_H - 4) // ROW_H)
 
     def _autosize_cols(self):
-        ew = self._user_w.get(1, COL_EXT)
-        sw = self._user_w.get(2, COL_SIZE)
-        dw = self._user_w.get(3, COL_DATE)
-        name_w = max(80, self.inner_w() - ew - sw - dw)
-        for i, cw in enumerate((name_w, ew, sw, dw)):
+        """Name fills whatever the fixed columns leave over."""
+        fixed = [self._user_w.get(c, d) for c, d in
+                 ((1, COL_EXT), (2, COL_SIZE), (3, COL_DATE), (4, COL_ATTR))]
+        name_w = max(80, self.inner_w() - sum(fixed))
+        for i, cw in enumerate([name_w] + fixed):
             self.col_width(i, cw)
-        self._set_w = [name_w, ew, sw, dw]
-
-    def _capture_widths(self):
-        """After an interactive column resize, remember the user's widths so
-        refresh/relayout (which autosizes Name to fill) keeps them."""
-        if not self._set_w:
-            return
-        cur = [self.col_width(c) for c in range(4)]
-        exp = self._set_w
-        if cur == exp:
-            return
-        if cur[0] != exp[0]:  # name|ext border dragged: shift into ext
-            self._user_w[1] = max(20, exp[0] + exp[1] - cur[0])
-        for c in (1, 2, 3):
-            if cur[c] != exp[c]:
-                self._user_w[c] = max(20, cur[c])
-        self._autosize_cols()
-        self.redraw()
 
     def header_hit(self, ex, ey):
         """(col, border) when (ex, ey) is in the column header band;
@@ -210,7 +210,7 @@ class FileTable(fltk.Fl_Table_Row):
         if not (self.y() + 2 <= ey <= self.y() + 2 + HDR_H):
             return None
         x0 = self.x() + 2
-        for c in range(4):
+        for c in range(5):
             wc = self.col_width(c)
             if ex < x0 + wc:
                 if c > 0 and ex - x0 <= 5:
@@ -253,10 +253,42 @@ class FileTable(fltk.Fl_Table_Row):
         table_click(self)
 
     def handle(self, event):
-        r = table_handle(self, event, super().handle)
-        if event == fltk.FL_RELEASE:
-            self._capture_widths()
-        return r
+        return table_handle(self, event, super().handle)
+
+    def draw(self):
+        self._place_vscroll()
+        super().draw()
+        if self._place_vscroll():  # Fl_Table re-placed it during draw
+            self.redraw()
+        # continue the header band across the scrollbar strip (TC look)
+        strip_x = self.x() + 2 + sum(self.col_width(c) for c in range(5))
+        band_r = self.x() + self.w() - 2
+        if strip_x < band_r:
+            y0 = self.y() + 2
+            fltk.fl_color(theme.HEADER_BG)
+            fltk.fl_rectf(strip_x, y0, band_r - strip_x, HDR_H)
+            fltk.fl_color(theme.HEADER_EDGE)
+            fltk.fl_line(strip_x, y0 + HDR_H - 1, band_r - 1, y0 + HDR_H - 1)
+
+    def _place_vscroll(self) -> bool:
+        """Start the vertical scrollbar below the header row (Fl_Table
+        spans it over the full table height). True if it was moved."""
+        sb = self.scrollbar_size() or fltk.Fl.scrollbar_size()
+        moved = False
+        for i in range(self.children()):
+            c = self.child(i)
+            if not c.visible():
+                continue
+            if c.w() == sb and c.h() > sb:  # v-scrollbar
+                top = self.y() + 2 + HDR_H
+                bot = c.y() + c.h()
+                if c.y() < top < bot:
+                    c.resize(c.x(), top, c.w(), bot - top)
+                    moved = True
+            elif c.h() == sb and c.w() > sb:  # h-scrollbar: crop, TC-like
+                c.hide()
+                moved = True
+        return moved
 
     def draw_cell(self, ctx, r=0, c=0, x=0, y=0, w=0, h=0):
         if ctx == _T.CONTEXT_STARTPAGE:
@@ -270,9 +302,9 @@ class FileTable(fltk.Fl_Table_Row):
             fltk.fl_line(x, y + h - 1, x + w - 1, y + h - 1)
             fltk.fl_line(x + w - 1, y + 2, x + w - 1, y + h - 3)
             fltk.fl_color(theme.TEXT)
-            fltk.fl_draw(("Name", "Ext", "Size", "Date")[c], x + 4, y, w - 8, h,
+            fltk.fl_draw(COL_TITLES[c], x + 4, y, w - 8, h,
                          fltk.FL_ALIGN_LEFT)
-            if self.pane.sort_key == ("name", "ext", "size", "date")[c]:
+            if self.pane.sort_key == COLS[c]:
                 ax, ay = x + w - 14, y + (h - 5) // 2
                 fltk.fl_color(fltk.FL_DARK2)
                 if self.pane.sort_rev:   # descending: down arrow
@@ -312,8 +344,10 @@ class FileTable(fltk.Fl_Table_Row):
         elif c == 2:
             fltk.fl_draw(self.pane.size_text(e), x + 2, y, w - 6, h,
                          fltk.FL_ALIGN_RIGHT)
-        else:
+        elif c == 3:
             fltk.fl_draw(fmt_date(e), x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT)
+        else:
+            fltk.fl_draw(fmt_attr(e), x + 2, y, w - 4, h, fltk.FL_ALIGN_LEFT)
         fltk.fl_pop_clip()
 
 
@@ -502,6 +536,7 @@ class FilePane(fltk.Fl_Group):
             "ext": lambda e: (e.ext.lower(), e.name.lower()),
             "size": lambda e: e.size,
             "date": lambda e: e.mtime,
+            "attr": lambda e: (fmt_attr(e), e.name.lower()),
         }[self.sort_key]
         # dirs follow name/date ordering (TC-style); ext/size keep them by name
         if self.sort_key in ("name", "date"):
