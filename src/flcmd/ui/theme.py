@@ -20,3 +20,15 @@ HEADER_EDGE = _c(208, 214, 222)
 PATH_ACTIVE = _c(153, 180, 209)
 PATH_IDLE = _c(191, 205, 219)
 FOOTER_BG = _c(240, 240, 240)
+
+
+def apply_scheme():
+    """Classic flat look on all platforms: the base scheme with the
+    standard box types remapped to their 1px thin variants (the gtk+
+    scheme's gradient 'pillow' bevels waste rows and match no platform)."""
+    fltk.Fl.scheme("none")
+    for full, thin in ((fltk.FL_UP_BOX, fltk.FL_THIN_UP_BOX),
+                       (fltk.FL_DOWN_BOX, fltk.FL_THIN_DOWN_BOX),
+                       (fltk.FL_UP_FRAME, fltk.FL_THIN_UP_FRAME),
+                       (fltk.FL_DOWN_FRAME, fltk.FL_THIN_DOWN_FRAME)):
+        fltk.Fl.set_boxtype(full, thin)

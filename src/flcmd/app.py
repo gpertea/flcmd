@@ -793,7 +793,8 @@ class App:
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    fltk.Fl.scheme("gtk+")
+    from .ui import theme
+    theme.apply_scheme()
     app = App(*(argv + [None, None])[:2])
     app.show()
     return fltk.Fl.run()

@@ -33,7 +33,9 @@ class _LocBtn(fltk.Fl_Button):
 class LocationsToolbar(fltk.Fl_Group):
     def __init__(self, x, y, w, h, on_go, host_win, nav_cb=None):
         super().__init__(x, y, w, h)
-        self.box(fltk.FL_THIN_UP_BOX)
+        # flat strip, TC buttonbar style; the menubar's 1px bevel above
+        # already separates the two
+        self.box(fltk.FL_FLAT_BOX)
         self.on_go = on_go          # callable(location) -> chdir active pane
         self.host_win = host_win
         self.nav_cb = nav_cb        # callable(-1|+1) -> history back/forward

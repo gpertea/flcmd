@@ -102,6 +102,23 @@ def table_handle(tbl, event, sup) -> int:
     return sup(event)
 
 
+def fit_name(nm: str, avail: float) -> str:
+    """TC-style truncation for a too-narrow Name column: end with '..',
+    and keep the closing bracket of '[dirname]' entries."""
+    if fltk.fl_width(nm) <= avail:
+        return nm
+    bracket = nm.startswith("[") and nm.endswith("]")
+    body, tail = (nm[:-1], "..]") if bracket else (nm, "..")
+    lo, hi = 0, len(body)
+    while lo < hi:  # longest prefix that fits together with the tail
+        mid = (lo + hi + 1) // 2
+        if fltk.fl_width(body[:mid] + tail) <= avail:
+            lo = mid
+        else:
+            hi = mid - 1
+    return body[:lo] + tail
+
+
 def fmt_date(e: DirEntry) -> str:
     if not e.mtime:
         return ""
@@ -259,6 +276,7 @@ class FileTable(fltk.Fl_Table_Row):
             nm = e.name if e.is_dir else paths.splitext(e.name)[0]
             if e.is_dir and e.name != "..":
                 nm = "[" + nm + "]"
+            nm = fit_name(nm, w - ICON_W - 10)
             fltk.fl_draw(nm, x + ICON_W + 6, y, w - ICON_W - 10, h,
                          fltk.FL_ALIGN_LEFT, None, 0)
         elif c == 1:

@@ -521,7 +521,8 @@ def main(argv=None) -> int:
     if not argv:
         print("usage: flcmd-view FILE...", file=sys.stderr)
         return 2
-    fltk.Fl.scheme("gtk+")
+    from ..ui import theme
+    theme.apply_scheme()
     win = ViewerWindow(argv)
     win.show()
     return fltk.Fl.run()
