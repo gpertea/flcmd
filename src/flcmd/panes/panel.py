@@ -285,7 +285,9 @@ class FileList(fltk.Fl_Box):
         x, y, w, h = self.x(), self.y(), self.w(), self.h()
         fltk.fl_push_clip(x, y, w, h)
         fltk.fl_color(theme.ROW_BG)
-        fltk.fl_rectf(x + 1, y + 1, w - 2, h - 2)
+        # never paint under the pane scrollbar strip: a list-only redraw
+        # would wipe its arrow buttons until the bar repaints itself
+        fltk.fl_rectf(x + 1, y + 1, PAD + self.inner_w(), h - 2)
         fltk.fl_font(fltk.FL_HELVETICA, 12)
         self._draw_header()
         cy, bottom = y + PAD + HDR_H, y + h - PAD
@@ -310,8 +312,9 @@ class FileList(fltk.Fl_Box):
         for c in range(5):
             wc = self._widths[c]
             fltk.fl_push_clip(cx, y0, min(wc, x0 + bw - cx), HDR_H)
-            fltk.fl_color(theme.HEADER_EDGE)
-            fltk.fl_line(cx + wc - 1, y0 + 2, cx + wc - 1, y0 + HDR_H - 3)
+            if c < 4:  # no divider after the last column (TC look)
+                fltk.fl_color(theme.HEADER_EDGE)
+                fltk.fl_line(cx + wc - 1, y0 + 2, cx + wc - 1, y0 + HDR_H - 3)
             fltk.fl_color(theme.TEXT)
             fltk.fl_draw(COL_TITLES[c], cx + 4, y0, wc - 8, HDR_H,
                          fltk.FL_ALIGN_LEFT)
@@ -334,7 +337,7 @@ class FileList(fltk.Fl_Box):
         cursor = r == self.pane.cursor
         focused = self.pane.is_active
         x0 = self.x() + PAD
-        iw = self.w() - 2 * PAD
+        iw = self.inner_w()
         if cursor and focused:
             fltk.fl_color(theme.CURSOR_BG)
         else:
@@ -347,8 +350,13 @@ class FileList(fltk.Fl_Box):
         # text is never inverted: black, or red when explicitly selected
         color = theme.SEL_TEXT if e.name in self.pane.selected else theme.TEXT
         cx = x0
-        for c in range(5):
+        c = 0
+        while c < 5:
             wc = self._widths[c]
+            if c == 0 and e.is_dir:
+                # TC: a directory name is one continuous string spanning
+                # the Name+Ext columns (nothing is split off as extension)
+                wc += self._widths[1]
             fltk.fl_push_clip(cx, ry, min(wc, x0 + iw - cx), ROW_H)
             fltk.fl_color(color)
             if c == 0:
@@ -360,6 +368,11 @@ class FileList(fltk.Fl_Box):
                 nm = fit_name(nm, wc - ICON_W - 10)
                 fltk.fl_draw(nm, cx + ICON_W + 6, ry, wc - ICON_W - 10, ROW_H,
                              fltk.FL_ALIGN_LEFT, None, 0)
+                if e.is_dir:
+                    fltk.fl_pop_clip()
+                    cx += wc
+                    c = 2
+                    continue
             elif c == 1:
                 fltk.fl_draw(e.ext, cx + 2, ry, wc - 4, ROW_H,
                              fltk.FL_ALIGN_LEFT, None, 0)
@@ -374,6 +387,7 @@ class FileList(fltk.Fl_Box):
                              fltk.FL_ALIGN_LEFT)
             fltk.fl_pop_clip()
             cx += wc
+            c += 1
             if cx >= x0 + iw:
                 break
 
