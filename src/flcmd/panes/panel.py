@@ -300,7 +300,7 @@ class PaneHeader(fltk.Fl_Box):
         self.pane = pane
         self.box(fltk.FL_FLAT_BOX)
         self.color(theme.PATH_IDLE)
-        self.labelfont(fltk.FL_HELVETICA_BOLD)
+        self.labelfont(fltk.FL_HELVETICA)
         self.labelsize(12)
         self._push_xy = None
         self._dragging = False
@@ -311,7 +311,7 @@ class PaneHeader(fltk.Fl_Box):
         fltk.fl_rectf(self.x(), self.y(), self.w(), self.h())
         # directory text (drawn without symbol parsing)
         fltk.fl_color(theme.TEXT)
-        fltk.fl_font(fltk.FL_HELVETICA_BOLD, 12)
+        fltk.fl_font(fltk.FL_HELVETICA, 12)
         fltk.fl_push_clip(self.x(), self.y(), self.w() - 4, self.h())
         fltk.fl_draw(self.label() or "", self.x() + 4, self.y(),
                      self.w() - 8, self.h(), fltk.FL_ALIGN_LEFT, None, 0)

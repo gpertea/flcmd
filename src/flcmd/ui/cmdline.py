@@ -52,7 +52,7 @@ class CmdLine(fltk.Fl_Group):
         self.prompt.box(fltk.FL_FLAT_BOX)
         self.prompt.color(theme.FOOTER_BG)
         self.prompt.labelsize(11)
-        self.prompt.labelfont(fltk.FL_HELVETICA_BOLD)
+        self.prompt.labelfont(fltk.FL_HELVETICA)
         self.prompt.align(fltk.FL_ALIGN_INSIDE | fltk.FL_ALIGN_RIGHT)
         self.input = _CmdInput(x + 12, y + 1, w - 14, h - 2, self)
         self.resizable(self.input)
@@ -61,7 +61,7 @@ class CmdLine(fltk.Fl_Group):
     def set_prompt(self, path: str):
         txt = path if len(path) <= 60 else "..." + path[-57:]
         txt += ">"
-        fltk.fl_font(fltk.FL_HELVETICA_BOLD, 11)
+        fltk.fl_font(fltk.FL_HELVETICA, 11)
         pw = int(fltk.fl_width(txt)) + 8
         self.prompt.copy_label(esc(txt))
         self.prompt.resize(self.x() + 2, self.y(), pw, self.h())

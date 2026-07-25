@@ -198,7 +198,7 @@ class ThumbView(fltk.Fl_Table):
         fltk.fl_rect(fx, fy, fw, fh)
         if up:
             fltk.fl_color(theme.TEXT)
-            fltk.fl_font(fltk.FL_HELVETICA_BOLD, max(11, ts // 6))
+            fltk.fl_font(fltk.FL_HELVETICA, max(11, ts // 6))
             fltk.fl_draw("..", fx, fy, fw, fh, fltk.FL_ALIGN_CENTER)
 
     def _draw_placeholder(self, x, y, ts, label: str):

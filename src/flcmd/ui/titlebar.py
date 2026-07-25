@@ -42,6 +42,67 @@ if IS_WIN:
     _u32.ShowWindow.argtypes = (ctypes.c_void_p, ctypes.c_int)
     _u32.GetForegroundWindow.restype = ctypes.c_void_p
     _u32.GetForegroundWindow.argtypes = ()
+    _u32.SystemParametersInfoW.restype = ctypes.c_int
+    _u32.SystemParametersInfoW.argtypes = (ctypes.c_uint, ctypes.c_uint,
+                                           ctypes.c_void_p, ctypes.c_uint)
+
+    class _LOGFONTW(ctypes.Structure):
+        _fields_ = [("lfHeight", ctypes.c_long), ("lfWidth", ctypes.c_long),
+                    ("lfEscapement", ctypes.c_long),
+                    ("lfOrientation", ctypes.c_long),
+                    ("lfWeight", ctypes.c_long), ("lfItalic", ctypes.c_byte),
+                    ("lfUnderline", ctypes.c_byte),
+                    ("lfStrikeOut", ctypes.c_byte),
+                    ("lfCharSet", ctypes.c_byte),
+                    ("lfOutPrecision", ctypes.c_byte),
+                    ("lfClipPrecision", ctypes.c_byte),
+                    ("lfQuality", ctypes.c_byte),
+                    ("lfPitchAndFamily", ctypes.c_byte),
+                    ("lfFaceName", ctypes.c_wchar * 32)]
+
+    class _NONCLIENTMETRICSW(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint),
+                    ("iBorderWidth", ctypes.c_int),
+                    ("iScrollWidth", ctypes.c_int),
+                    ("iScrollHeight", ctypes.c_int),
+                    ("iCaptionWidth", ctypes.c_int),
+                    ("iCaptionHeight", ctypes.c_int),
+                    ("lfCaptionFont", _LOGFONTW),
+                    ("iSmCaptionWidth", ctypes.c_int),
+                    ("iSmCaptionHeight", ctypes.c_int),
+                    ("lfSmCaptionFont", _LOGFONTW),
+                    ("iMenuWidth", ctypes.c_int),
+                    ("iMenuHeight", ctypes.c_int),
+                    ("lfMenuFont", _LOGFONTW),
+                    ("lfStatusFont", _LOGFONTW),
+                    ("lfMessageFont", _LOGFONTW),
+                    ("iPaddedBorderWidth", ctypes.c_int)]
+
+
+_caption_font: tuple | None = None  # (Fl_Font, size), resolved lazily
+
+
+def caption_font() -> tuple:
+    """The OS window-caption font (face, weight and size from the
+    current Windows settings); FLTK default elsewhere / on failure."""
+    global _caption_font
+    if _caption_font is None:
+        _caption_font = (fltk.FL_HELVETICA, 12)
+        if IS_WIN:
+            try:
+                ncm = _NONCLIENTMETRICSW()
+                ncm.cbSize = ctypes.sizeof(ncm)
+                if _u32.SystemParametersInfoW(0x29, ncm.cbSize,
+                                              ctypes.byref(ncm), 0):
+                    lf = ncm.lfCaptionFont
+                    # FLTK face prefix: ' ' plain, 'B' bold
+                    face = ("B" if lf.lfWeight >= 600 else " ") + lf.lfFaceName
+                    fltk.Fl.set_font(fltk.FL_FREE_FONT, face)
+                    size = -lf.lfHeight if lf.lfHeight < 0 else lf.lfHeight
+                    _caption_font = (fltk.FL_FREE_FONT, max(10, size))
+            except Exception:
+                pass
+    return _caption_font
 
 
 class _CaptionBtn(HoverButton):
@@ -122,7 +183,7 @@ class TitleBar(fltk.Fl_Group):
         super().draw()
         # focus feedback like TC: same background, clearer text when active
         fltk.fl_color(theme.TEXT if self._active else theme.TITLE_IDLE)
-        fltk.fl_font(fltk.FL_HELVETICA_BOLD, 12)
+        fltk.fl_font(*caption_font())
         fltk.fl_draw(self._title, self.x() + 8, self.y(),
                      self.w() - 3 * _BTN_W - 16, self.h(), fltk.FL_ALIGN_LEFT)
 
