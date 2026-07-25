@@ -64,7 +64,17 @@ def table_handle(tbl, event, sup) -> int:
         tbl._cell_pushed = False
         hit = getattr(tbl, "header_hit", None)  # thumbs grid has no header
         tbl._hdr_push = hit(fltk.Fl.event_x(), fltk.Fl.event_y()) if hit else None
+        if tbl._hdr_push and tbl._hdr_push[1] is not None:
+            # our own column-border drag (wider grab zone than Fl_Table's)
+            b = tbl._hdr_push[1]
+            tbl._col_drag = (b, fltk.Fl.event_x(), tbl.col_width(b))
+            return 1
         return sup(event)
+    if event == fltk.FL_DRAG and getattr(tbl, "_col_drag", None):
+        b, sx, sw = tbl._col_drag
+        tbl.col_width(b, max(20, sw + fltk.Fl.event_x() - sx))
+        tbl._capture_widths()
+        return 1
     if event == fltk.FL_DRAG:
         # header pushes (sort click or column-border resize) belong to
         # Fl_Table; only a drag that started on a cell is a file drag-out
@@ -81,15 +91,27 @@ def table_handle(tbl, event, sup) -> int:
                 tbl._dragging = False
         return 1
     if event == fltk.FL_RELEASE:
+        tbl._col_drag = None
         hp, tbl._hdr_push = getattr(tbl, "_hdr_push", None), None
         if hp and tbl._push_xy:
-            col, near = hp
+            col, border = hp
             dx = abs(fltk.Fl.event_x() - tbl._push_xy[0])
             dy = abs(fltk.Fl.event_y() - tbl._push_xy[1])
-            if col >= 0 and not near and dx + dy < 5:
+            if border is None and dx + dy < 5:
                 tbl.pane.sort(("name", "ext", "size", "date")[col])
         tbl._push_xy = None
         return sup(event) or 1
+    if event == fltk.FL_MOVE:
+        hit = getattr(tbl, "header_hit", None)
+        hp = hit(fltk.Fl.event_x(), fltk.Fl.event_y()) if hit else None
+        want = hp is not None and hp[1] is not None
+        if want != getattr(tbl, "_we_cursor", False):
+            tbl._we_cursor = want
+            tbl.window().cursor(fltk.FL_CURSOR_WE if want
+                                else fltk.FL_CURSOR_DEFAULT)
+        if want:
+            return 1  # keep Fl_Table's own (narrower) cursor logic out
+        return sup(event)
     if event in (fltk.FL_DND_ENTER, fltk.FL_DND_DRAG, fltk.FL_DND_RELEASE):
         return 1
     if event == fltk.FL_PASTE:
@@ -181,15 +203,20 @@ class FileTable(fltk.Fl_Table_Row):
         self.redraw()
 
     def header_hit(self, ex, ey):
-        """(col, near_border) when (ex, ey) is in the column header band."""
+        """(col, border) when (ex, ey) is in the column header band;
+        border is the column whose width a resize drag would change
+        (None when not within the 5px grab zone of a border)."""
         if not (self.y() + 2 <= ey <= self.y() + 2 + HDR_H):
             return None
         x0 = self.x() + 2
         for c in range(4):
             wc = self.col_width(c)
             if ex < x0 + wc:
-                near = (c > 0 and ex - x0 < 6) or (x0 + wc) - ex < 6
-                return (c, near)
+                if c > 0 and ex - x0 <= 5:
+                    return (c, c - 1)       # near left border
+                if (x0 + wc) - ex <= 5:
+                    return (c, c)           # near right border
+                return (c, None)
             x0 += wc
         return None
 

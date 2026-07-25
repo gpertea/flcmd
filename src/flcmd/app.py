@@ -24,6 +24,59 @@ FKEYS = [
 NOT_YET: dict[str, str] = {}
 
 
+class PaneTile(fltk.Fl_Tile):
+    """Fl_Tile whose two-pane divider has a comfortable grab zone (the
+    stock hot area is effectively a hair-line)."""
+
+    GRAB = 4  # px each side of the divider
+    MIN_PANE = 120
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._div_drag = False
+        self._we_cursor = False
+
+    def _div_x(self) -> int:
+        c = self.child(0)
+        return c.x() + c.w()
+
+    def _near(self) -> bool:
+        return (self.children() >= 2
+                and abs(fltk.Fl.event_x() - self._div_x()) <= self.GRAB)
+
+    def _move_divider(self, newx: int):
+        newx = min(max(newx, self.x() + self.MIN_PANE),
+                   self.x() + self.w() - self.MIN_PANE)
+        left, right = self.child(0), self.child(1)
+        y, h, rx = left.y(), left.h(), self.x() + self.w()
+        left.resize(self.x(), y, newx - self.x(), h)
+        right.resize(newx, y, rx - newx, h)
+        self.init_sizes()
+        self.redraw()
+
+    def handle(self, event):
+        if event in (fltk.FL_MOVE, fltk.FL_ENTER):
+            near = self._near()
+            if near != self._we_cursor:
+                self._we_cursor = near
+                self.window().cursor(fltk.FL_CURSOR_WE if near
+                                     else fltk.FL_CURSOR_DEFAULT)
+            if near:
+                return 1
+        elif (event == fltk.FL_PUSH
+              and fltk.Fl.event_button() == fltk.FL_LEFT_MOUSE
+              and self._near()):
+            self._div_drag = True
+            return 1
+        elif event == fltk.FL_DRAG and self._div_drag:
+            self._move_divider(fltk.Fl.event_x())
+            return 1
+        elif event == fltk.FL_RELEASE and self._div_drag:
+            self._div_drag = False
+            return 1
+        return super().handle(event)
+
+
 class App:
     def __init__(self, left_path: str | None = None, right_path: str | None = None):
         self.cfg = config.load()
@@ -61,7 +114,7 @@ class App:
         cmd_h = CMD_H if self.show_cmdline else 0
         top = self._top0 + MENU_H + tb_h
         ph = h - top - FKEY_H - cmd_h
-        self.tile = fltk.Fl_Tile(0, top, w, ph)
+        self.tile = PaneTile(0, top, w, ph)
         vfs = LocalVFS()
         lp = self._start_path(vfs, left_path, "left")
         rp = self._start_path(vfs, right_path, "right")
