@@ -24,9 +24,10 @@ FKEYS = [
 NOT_YET: dict[str, str] = {}
 
 
-class PaneTile(fltk.Fl_Tile):
-    """Fl_Tile whose two-pane divider has a comfortable grab zone (the
-    stock hot area is effectively a hair-line)."""
+class PaneTile(fltk.Fl_Group):
+    """Two-pane splitter with a comfortable divider grab zone and a
+    TC-style proportional split on resize (plain Fl_Group: Fl_Tile's
+    hair-line hot area and edge-absorbing resize both get replaced)."""
 
     GRAB = 4  # px each side of the divider
     MIN_PANE = 120
@@ -44,32 +45,40 @@ class PaneTile(fltk.Fl_Tile):
         return (self.children() >= 2
                 and abs(fltk.Fl.event_x() - self._div_x()) <= self.GRAB)
 
-    def _move_divider(self, newx: int):
-        newx = min(max(newx, self.x() + self.MIN_PANE),
+    def _split(self, divx: int):
+        divx = min(max(divx, self.x() + self.MIN_PANE),
                    self.x() + self.w() - self.MIN_PANE)
-        left, right = self.child(0), self.child(1)
-        y, h, rx = left.y(), left.h(), self.x() + self.w()
-        left.resize(self.x(), y, newx - self.x(), h)
-        right.resize(newx, y, rx - newx, h)
+        y, h, rx = self.y(), self.h(), self.x() + self.w()
+        self.child(0).resize(self.x(), y, divx - self.x(), h)
+        self.child(1).resize(divx, y, rx - divx, h)
         self.init_sizes()
         self.redraw()
+
+    def resize(self, x, y, w, h):
+        # keep the split ratio (TC-like), not Fl_Tile's edge-absorbing
+        ratio = (self._div_x() - self.x()) / self.w() \
+            if self.children() >= 2 and self.w() > 0 else 0.5
+        fltk.Fl_Widget.resize(self, x, y, w, h)
+        if self.children() >= 2:
+            self._split(x + round(w * ratio))
 
     def handle(self, event):
         if event in (fltk.FL_MOVE, fltk.FL_ENTER):
             near = self._near()
-            if near != self._we_cursor:
-                self._we_cursor = near
-                self.window().cursor(fltk.FL_CURSOR_WE if near
-                                     else fltk.FL_CURSOR_DEFAULT)
-            if near:
+            if near:  # every move: the window handler resets the cursor
+                self.window().cursor(fltk.FL_CURSOR_WE)
+                self._we_cursor = True
                 return 1
+            if self._we_cursor:
+                self._we_cursor = False
+                self.window().cursor(fltk.FL_CURSOR_DEFAULT)
         elif (event == fltk.FL_PUSH
               and fltk.Fl.event_button() == fltk.FL_LEFT_MOUSE
               and self._near()):
             self._div_drag = True
             return 1
         elif event == fltk.FL_DRAG and self._div_drag:
-            self._move_divider(fltk.Fl.event_x())
+            self._split(fltk.Fl.event_x())
             return 1
         elif event == fltk.FL_RELEASE and self._div_drag:
             self._div_drag = False

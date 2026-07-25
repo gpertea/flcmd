@@ -104,13 +104,14 @@ def table_handle(tbl, event, sup) -> int:
     if event == fltk.FL_MOVE:
         hit = getattr(tbl, "header_hit", None)
         hp = hit(fltk.Fl.event_x(), fltk.Fl.event_y()) if hit else None
-        want = hp is not None and hp[1] is not None
-        if want != getattr(tbl, "_we_cursor", False):
-            tbl._we_cursor = want
-            tbl.window().cursor(fltk.FL_CURSOR_WE if want
-                                else fltk.FL_CURSOR_DEFAULT)
-        if want:
+        if hp is not None and hp[1] is not None:
+            # every move: the window-level handler resets the cursor
+            tbl.window().cursor(fltk.FL_CURSOR_WE)
+            tbl._we_cursor = True
             return 1  # keep Fl_Table's own (narrower) cursor logic out
+        if getattr(tbl, "_we_cursor", False):
+            tbl._we_cursor = False
+            tbl.window().cursor(fltk.FL_CURSOR_DEFAULT)
         return sup(event)
     if event in (fltk.FL_DND_ENTER, fltk.FL_DND_DRAG, fltk.FL_DND_RELEASE):
         return 1
