@@ -33,7 +33,9 @@ class _ButtonsWindow(fltk.Fl_Double_Window):
                 fltk.FL_Enter, fltk.FL_KP_Enter):
             focus = fltk.Fl.focus()
             for b in self.buttons:
-                if b == focus:
+                # contains() compares widget pointers on the C++ side --
+                # pyfltk proxy equality does not
+                if focus is not None and b.contains(focus):
                     b.do_callback()
                     return 1
             if self.buttons:

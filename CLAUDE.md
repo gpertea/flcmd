@@ -62,3 +62,33 @@ emulating Total Commander functionality and keyboard shortcuts.
   `xvfb-run -a uv run pytest` or the `xdisplay` fixture in tests/conftest.py
   (spawns its own Xvfb; tests skip if Xvfb is not installed). Headless logic
   tests run with plain `uv run pytest -m "not gui"`.
+
+## Windows GUI testing: use the VirtualBox VM, never the host desktop
+Synthetic mouse/keyboard input on the developer's desktop interferes with
+their work. All interactive Windows testing runs in the VirtualBox VM
+**Win10x64** (guest login: user `claude`, password `tester123`), driven
+with VBoxManage from the host:
+- Host OS determines the binary: Windows host ->
+  `C:\Program Files\Virtualbox7\VBoxManage.exe`, invoked from
+  **PowerShell** (MSYS2 bash mangles `/c`-style guest arguments into
+  paths); Linux host -> `VBoxManage` on PATH.
+- If the VM is not running: `VBoxManage startvm Win10x64 --type gui`,
+  then poll `showvminfo` until the "VirtualBox System Service" facility
+  is active (~40 s).
+- Guest quoting through `guestcontrol run` is unreliable: for anything
+  non-trivial write a `.ps1` locally, `guestcontrol copyto` it, then
+  `run --exe powershell.exe -- powershell -NoProfile -ExecutionPolicy
+  Bypass -File <script>`. One guest session at a time -- piled-up stuck
+  sessions have crashed the whole VM process before.
+- Deploy: `git archive --format=zip HEAD` -> copyto ->
+  `Expand-Archive` -> `uv sync` (uv in guest:
+  `C:\Users\claude\.local\bin\uv.exe`). Guest scratch dir:
+  `C:\test\flcmd\` (app tree in `app\`, test area `playground\`).
+  Single-file iteration: copyto straight into `app\src\flcmd\...`
+  (editable install) and restart the app.
+- Drive input with `VBoxManage controlvm Win10x64 keyboardputscancode`
+  (press/release pairs, e.g. Enter `1c 9c`, F8 `42 c2`, Tab `0f 8f`,
+  Down `e0 50 e0 d0`); verify visually with
+  `controlvm Win10x64 screenshotpng <file>` and read the PNG.
+- The VM has **Total Commander** installed (desktop shortcut) -- launch
+  it there to check reference behavior when implementing TC features.
