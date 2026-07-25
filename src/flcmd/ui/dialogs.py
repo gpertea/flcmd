@@ -19,6 +19,29 @@ def _text_w(text: str, size: int = 12) -> int:
     return max(int(fltk.fl_width(line)) for line in text.split("\n"))
 
 
+class _ButtonsWindow(fltk.Fl_Double_Window):
+    """Enter/keypad-Enter activates the focused button (FLTK buttons only
+    react to Space); with focus elsewhere it takes the first (default)
+    button. Esc still closes via FLTK's usual window handling."""
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.buttons: list = []
+
+    def handle(self, event):
+        if event == fltk.FL_KEYDOWN and fltk.Fl.event_key() in (
+                fltk.FL_Enter, fltk.FL_KP_Enter):
+            focus = fltk.Fl.focus()
+            for b in self.buttons:
+                if b == focus:
+                    b.do_callback()
+                    return 1
+            if self.buttons:
+                self.buttons[0].do_callback()
+                return 1
+        return super().handle(event)
+
+
 def ask_buttons(title: str, message: str, buttons: list[str]) -> str:
     """Modal message with arbitrary buttons; returns the clicked label.
     Closing the window answers with the last button (the safe one)."""
@@ -27,7 +50,7 @@ def ask_buttons(title: str, message: str, buttons: list[str]) -> str:
     lines = message.count("\n") + 1
     mh = 16 * lines + 2 * pad
     w = max(len(buttons) * (bw + pad) + pad, 380, _text_w(message) + 3 * pad)
-    win = fltk.Fl_Double_Window(w, mh + bh + 2 * pad, title)
+    win = _ButtonsWindow(w, mh + bh + 2 * pad, title)
     box = fltk.Fl_Box(pad, pad, w - 2 * pad, mh - pad, esc(message))
     box.align(fltk.FL_ALIGN_INSIDE | fltk.FL_ALIGN_LEFT | fltk.FL_ALIGN_WRAP)
     box.labelsize(12)
@@ -41,7 +64,10 @@ def ask_buttons(title: str, message: str, buttons: list[str]) -> str:
         b = fltk.Fl_Button(x + i * (bw + pad), mh + pad, bw, bh, label)
         b.labelsize(12)
         b.callback(cb, label)
+        win.buttons.append(b)
     win.end()
+    if win.buttons:
+        win.buttons[0].take_focus()  # Enter accepts the default action
     _run_modal(win)
     return result[0]
 
