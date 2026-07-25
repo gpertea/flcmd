@@ -7,13 +7,14 @@ import fltk
 
 from .. import bookmarks, config, paths
 from . import esc
+from .buttons import HoverButton
 
 TOOLBAR_H = 26
 BTN_H = 22
 BTN_PAD = 6
 
 
-class _LocBtn(fltk.Fl_Button):
+class _LocBtn(HoverButton):
     def __init__(self, x, y, w, h, toolbar, index):
         super().__init__(x, y, w, h)
         self.toolbar = toolbar
@@ -60,7 +61,7 @@ class LocationsToolbar(fltk.Fl_Group):
         if self.nav_cb and bool(config.load().get("toolbar", {}).get("nav", True)):
             for sym, d, tip in (("@<-", -1, "Back (Alt+Left)"),
                                 ("@->", +1, "Forward (Alt+Right)")):
-                b = fltk.Fl_Button(bx, by, 28, BTN_H)
+                b = HoverButton(bx, by, 28, BTN_H)
                 b.copy_label(sym)  # '@' kept: FLTK arrow symbols
                 b.box(fltk.FL_THIN_UP_BOX)
                 b.labelsize(11)

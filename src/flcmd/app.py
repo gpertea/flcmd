@@ -33,15 +33,24 @@ class App:
         self._viewers: list = []
 
         from .ui.cmdline import CMD_H, CmdLine
+        from .ui.titlebar import TITLEBAR_H, BorderlessWindow, TitleBar
         from .ui.toolbar import LocationsToolbar, TOOLBAR_H
-        self.win = fltk.Fl_Double_Window(w, h, "flcmd")
-        self.menubar = fltk.Fl_Menu_Bar(0, 0, w, MENU_H)
+        self.custom_title = bool(
+            self.cfg.get("ui", {}).get("custom_titlebar", True))
+        if self.custom_title:
+            self.win = BorderlessWindow(w, h, "flcmd")
+            self.titlebar = TitleBar(0, 0, w, TITLEBAR_H, self.win)
+        else:
+            self.win = fltk.Fl_Double_Window(w, h, "flcmd")
+            self.titlebar = None
+        self._top0 = TITLEBAR_H if self.custom_title else 0
+        self.menubar = fltk.Fl_Menu_Bar(0, self._top0, w, MENU_H)
         self.menubar.box(fltk.FL_THIN_UP_BOX)
         self._build_menu()
         self.show_toolbar = bool(self.cfg.get("toolbar", {}).get("show", True))
         tb_h = TOOLBAR_H if self.show_toolbar else 0
         self.toolbar = LocationsToolbar(
-            0, MENU_H, w, TOOLBAR_H,
+            0, self._top0 + MENU_H, w, TOOLBAR_H,
             lambda loc: self._go_location(self.active(), loc), self.win,
             nav_cb=lambda d: self.dispatch("nav.back" if d < 0 else "nav.fwd",
                                            self.active()))
@@ -49,7 +58,7 @@ class App:
             self.toolbar.hide()
         self.show_cmdline = bool(self.cfg.get("cmdline", {}).get("show", True))
         cmd_h = CMD_H if self.show_cmdline else 0
-        top = MENU_H + tb_h
+        top = self._top0 + MENU_H + tb_h
         ph = h - top - FKEY_H - cmd_h
         self.tile = fltk.Fl_Tile(0, top, w, ph)
         vfs = LocalVFS()
@@ -69,11 +78,12 @@ class App:
         if not self.show_cmdline:
             self.cmdline.hide()
 
+        from .ui.buttons import HoverButton
         bar = fltk.Fl_Group(0, h - FKEY_H, w, FKEY_H)
         bw = w // len(FKEYS)
         for i, (label, action) in enumerate(FKEYS):
-            b = fltk.Fl_Button(i * bw, h - FKEY_H,
-                               bw if i < len(FKEYS) - 1 else w - bw * i, FKEY_H, label)
+            b = HoverButton(i * bw, h - FKEY_H,
+                            bw if i < len(FKEYS) - 1 else w - bw * i, FKEY_H, label)
             b.box(fltk.FL_THIN_UP_BOX)
             b.labelsize(11)
             b.clear_visible_focus()
@@ -508,7 +518,7 @@ class App:
         from .ui.cmdline import CMD_H
         from .ui.toolbar import TOOLBAR_H
         w, h = self.win.w(), self.win.h()
-        top = MENU_H + (TOOLBAR_H if self.show_toolbar else 0)
+        top = self._top0 + MENU_H + (TOOLBAR_H if self.show_toolbar else 0)
         cmd_h = CMD_H if self.show_cmdline else 0
         self.toolbar.show() if self.show_toolbar else self.toolbar.hide()
         self.cmdline.show() if self.show_cmdline else self.cmdline.hide()

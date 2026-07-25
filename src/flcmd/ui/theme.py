@@ -20,6 +20,8 @@ HEADER_EDGE = _c(208, 214, 222)
 PATH_ACTIVE = _c(153, 180, 209)
 PATH_IDLE = _c(191, 205, 219)
 FOOTER_BG = _c(240, 240, 240)
+HOVER_BG = _c(229, 241, 251)      # pointer-over tint for buttons
+CLOSE_HOVER = _c(232, 17, 35)     # close caption button hover (red)
 
 
 def apply_scheme():
@@ -28,6 +30,7 @@ def apply_scheme():
     scheme's gradient 'pillow' bevels waste rows and match no platform)."""
     fltk.Fl.scheme("none")
     fltk.Fl.background(240, 240, 240)  # match FOOTER_BG / Win button face
+    fltk.Fl.scrollbar_size(12)         # compact scrollbars (default 16)
     for full, thin in ((fltk.FL_UP_BOX, fltk.FL_THIN_UP_BOX),
                        (fltk.FL_DOWN_BOX, fltk.FL_THIN_DOWN_BOX),
                        (fltk.FL_UP_FRAME, fltk.FL_THIN_UP_FRAME),
