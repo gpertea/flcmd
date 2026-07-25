@@ -36,7 +36,8 @@ class App:
         from .ui.titlebar import TITLEBAR_H, BorderlessWindow, TitleBar
         from .ui.toolbar import LocationsToolbar, TOOLBAR_H
         self.custom_title = bool(
-            self.cfg.get("ui", {}).get("custom_titlebar", True))
+            self.cfg.get("ui", {}).get("custom_titlebar",
+                                       sys.platform == "win32"))
         if self.custom_title:
             self.win = BorderlessWindow(w, h, "flcmd")
             self.titlebar = TitleBar(0, 0, w, TITLEBAR_H, self.win)

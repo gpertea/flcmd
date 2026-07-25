@@ -22,6 +22,7 @@ PATH_IDLE = _c(191, 205, 219)
 FOOTER_BG = _c(240, 240, 240)
 HOVER_BG = _c(229, 241, 251)      # pointer-over tint for buttons
 CLOSE_HOVER = _c(232, 17, 35)     # close caption button hover (red)
+TITLE_IDLE = _c(128, 128, 128)    # title text when the window is inactive
 
 
 def apply_scheme():

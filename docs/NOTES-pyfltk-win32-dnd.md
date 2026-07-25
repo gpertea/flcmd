@@ -52,8 +52,12 @@ Python threads are paused for the (short, user-interactive) drag.
 Any native call that can **re-enter the Windows message loop** on the
 GUI thread must go through `PyDLL`, not `windll`, if FLTK windows
 exist: `DoDragDrop`/`SHDoDragDrop`, `TrackPopupMenu`, `MessageBox`,
-common dialogs, anything COM that pumps messages. Fast, non-pumping
-calls are fine via `windll`.
+common dialogs, anything COM that pumps messages -- and also calls that
+deliver messages **synchronously** to the target WndProc rather than
+pumping a loop: `SetWindowPos` (WM_NCCALCSIZE et al., confirmed crash
+with SWP_FRAMECHANGED), `SetWindowLongPtr` (WM_STYLECHANGED),
+`ShowWindow`, `SendMessage` of any kind aimed at an FLTK window. Fast,
+non-message-delivering calls are fine via `windll`.
 
 Is this pyFLTK-specific? The GIL aspect, yes: C++ FLTK apps have no
 GIL, and bindings whose callbacks do `PyGILState_Ensure` themselves
