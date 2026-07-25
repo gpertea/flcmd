@@ -78,17 +78,28 @@ with VBoxManage from the host:
 - Guest quoting through `guestcontrol run` is unreliable: for anything
   non-trivial write a `.ps1` locally, `guestcontrol copyto` it, then
   `run --exe powershell.exe -- powershell -NoProfile -ExecutionPolicy
-  Bypass -File <script>`. One guest session at a time -- piled-up stuck
-  sessions have crashed the whole VM process before.
+  Bypass -File <script>`.
+- **NEVER run `guestcontrol closesession --all` -- it aborts (crashes)
+  the whole VM process** (reproduced twice on VBox 7.2.14). Sessions
+  linger after each `run`; that is harmless. If they pile up or the VM
+  gets weird, reboot it (`controlvm Win10x64 reboot`, or after an abort
+  `startvm`). Stuck sessions come from killing VBoxManage mid-call --
+  use generous timeouts instead.
 - Deploy: `git archive --format=zip HEAD` -> copyto ->
-  `Expand-Archive` -> `uv sync` (uv in guest:
-  `C:\Users\claude\.local\bin\uv.exe`). Guest scratch dir:
-  `C:\test\flcmd\` (app tree in `app\`, test area `playground\`).
-  Single-file iteration: copyto straight into `app\src\flcmd\...`
-  (editable install) and restart the app.
+  `Expand-Archive` -> `uv sync --python
+  "C:\Program Files\Python312\python.exe"` (uv in guest:
+  `C:\Users\claude\.local\bin\uv.exe`). The guest has python.org
+  3.12.10 installed all-users; ALWAYS pass that `--python`: venvs from
+  uv-managed CPython get a console-subsystem pythonw trampoline (ugly
+  conhost window behind the GUI). Guest scratch dir: `C:\test\flcmd\`
+  (app tree in `app\`, test area `playground\`). Single-file
+  iteration: copyto straight into `app\src\flcmd\...` (editable
+  install) and restart the app.
 - Drive input with `VBoxManage controlvm Win10x64 keyboardputscancode`
   (press/release pairs, e.g. Enter `1c 9c`, F8 `42 c2`, Tab `0f 8f`,
   Down `e0 50 e0 d0`); verify visually with
   `controlvm Win10x64 screenshotpng <file>` and read the PNG.
-- The VM has **Total Commander** installed (desktop shortcut) -- launch
-  it there to check reference behavior when implementing TC features.
+- The VM has **Total Commander 10.52** at
+  `C:\util\totalcmd\TOTALCMD64.EXE` -- launch and drive it there
+  (keyboardputscancode + screenshots) to check reference behavior when
+  implementing TC features.
