@@ -1,8 +1,48 @@
-# pyFLTK + Windows OLE drag-out: the GIL trap (tech note)
+# pyFLTK gotchas (tech notes)
 
-Hard-won findings from implementing file drag-out on Windows
-(`flcmd/dnd/win32.py`, 2026-07). Relevant to ANY pyFLTK app that calls
-a blocking native Windows API via ctypes -- not just drag and drop.
+Hard-won findings; each one cost a debugging session. Relevant to ANY
+pyFLTK app, not just flcmd.
+
+1. [Widget lifetime](#1-widget-lifetime-parentless-widgets-die-with-their-python-ref)
+2. [The GIL trap on Windows](#2-the-gil-trap-native-calls-that-deliver-messages)
+3. [Fl_Table is not a file list](#3-fl_table-is-not-a-file-list)
+
+---
+
+# 1. Widget lifetime: parentless widgets die with their Python ref
+
+**Symptom** (2026-07, folder-shortcuts menu): picking an item from a
+popup menu killed the process an unpredictable moment later, with an
+access violation inside a completely unrelated redraw.
+
+**Cause.** A widget added to a group is owned by FLTK; a **parentless**
+widget is owned by the Python proxy and its C++ object is freed as soon
+as the last Python reference goes away. A menu built per call:
+
+    mb = fltk.Fl_Menu_Button(x, y, 0, 0)   # no parent
+    ...
+    mb.popup()                             # returns -> mb is garbage
+
+is freed while FLTK still holds pointers to it (picked item + its
+callback data, `Fl::pushed()`, damage list). The crash lands wherever
+that memory is next touched -- typically a later redraw, hence the
+delay, which makes the real culprit invisible in the traceback.
+
+**Rule.** Any widget created without a parent must outlive every FLTK
+reference to it. Either add it to a group/window, or keep one
+long-lived instance and reuse it. flcmd does the latter for popups:
+`ui/menus.py` keeps a single `Fl_Menu_Button`, `clear()`s and
+repositions it per popup. Same applies to menus built in a callback,
+temporary dialogs held in locals, and image/box objects passed to
+widgets that keep a raw pointer.
+
+---
+
+# 2. The GIL trap: native calls that deliver messages
+
+From implementing file drag-out on Windows (`flcmd/dnd/win32.py`,
+2026-07). Relevant to any pyFLTK app calling a blocking native Windows
+API via ctypes -- not just drag and drop.
 
 ## The crash
 
@@ -86,3 +126,29 @@ messages.
   *source* application's modal drag loop (defer with
   `Fl.add_timeout(0.0, ...)`), and FLTK does not update Fl modifiers
   during OLE drags (query `GetKeyState` for Shift=move semantics).
+
+---
+
+# 3. Fl_Table is not a file list
+
+flcmd's file panes started on `Fl_Table_Row` and fought it for weeks
+(2026-07) before switching to a custom-drawn `FileList` (an `Fl_Box`,
+~300 lines, in `panes/panel.py`). What Fl_Table does that a TC-style
+pane must not:
+
+- It **owns its scrollbars** and re-shows/re-places them on every
+  internal recalc. Hiding or repositioning them per draw is a race you
+  lose (they spring back over the header); unparenting them leaves
+  stale pixels because its damage tracking still assumes they exist.
+- No way to have vertical-only scrolling: the h-scrollbar reappears
+  whenever columns overflow, and it de-syncs header hot zones from the
+  drawn dividers.
+- Its own `col_resize` machinery keeps grabbing borders (including the
+  last column's right edge) whatever you layer on top.
+- It reserves phantom strips (a stray grey row at the pane bottom).
+
+If every cell is custom-drawn anyway -- which is the case for any
+TC-like pane (icons, per-type colors, ellipsis, sort arrows) -- Fl_Table
+contributes only scroll arithmetic that is a dozen lines to write, so
+prefer a plain widget: only visible rows are painted, and behavior is
+exactly what you draw. No C++ needed.

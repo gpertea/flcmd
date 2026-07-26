@@ -26,7 +26,7 @@ IS_WIN = sys.platform == "win32"
 if IS_WIN:
     # PyDLL, not windll: SetWindowLongPtr/SetWindowPos/ShowWindow send
     # messages synchronously to FLTK's WndProc, whose pyfltk callbacks
-    # need the GIL held (see docs/NOTES-pyfltk-win32-dnd.md). Exact
+    # need the GIL held (see docs/NOTES-pyfltk.md). Exact
     # prototypes: default int marshalling truncates HWNDs.
     _u32 = ctypes.PyDLL("user32")
     _u32.GetWindowLongPtrW.restype = ctypes.c_ssize_t

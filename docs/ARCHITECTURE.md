@@ -19,14 +19,15 @@ src/flcmd/
     local.py    local filesystem
     sftp.py     paramiko-backed remote FS (built-in SSH)
     archive.py  zip/tar browsing (later: WCX packer plugins)
-  panes/        file-list UI (Fl_Table-based), path bar, tabs, quick search
+  panes/        file-list UI (custom-drawn FileList widget; NOT Fl_Table --
+                see docs/NOTES-pyfltk.md), path bar, tabs, quick search
   ops/          copy/move/delete/mkdir engines with progress + conflict
                 resolution, running in worker threads (queue + Fl.awake)
   viewer/       built-in file viewer (text/hex/image, encodings, wrap);
                 standalone via `flcmd-view` / `python -m flcmd.viewer`;
                 hosts WLX viewer plugins
   dnd/          drag OUT to other apps: x11.py (XDND, ctypes), win32.py
-                (shell OLE drag; see docs/NOTES-pyfltk-win32-dnd.md)
+                (shell OLE drag; see docs/NOTES-pyfltk.md)
                 (OLE, pywin32), macos.py (pyobjc). Drop IN handled by FLTK
                 events in panes.
   plugins/      plugin host
