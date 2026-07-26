@@ -119,6 +119,65 @@ def test_move_rename_same_dir(vfs, src):
     assert not os.path.exists(src + "/a.txt")
 
 
+@pytest.fixture()
+def conflict(tmp_path):
+    """src/dst with the same three names; sources newer except 'mid'."""
+    s, d = tmp_path / "cs", tmp_path / "cd"
+    s.mkdir(), d.mkdir()
+    now = time.time()
+    for n, sm, dm in (("new.txt", now, now - 90000),      # source newer
+                      ("old.txt", now - 90000, now),      # target newer
+                      ("mid.txt", now, now - 90000)):
+        (s / n).write_text("SRC-" + n)
+        (d / n).write_text("DST-" + n)
+        os.utime(s / n, (sm, sm))
+        os.utime(d / n, (dm, dm))
+    return str(s).replace("\\", "/"), str(d).replace("\\", "/")
+
+
+def _names(sdir):
+    return sorted(f"{sdir}/{n}" for n in ("new.txt", "old.txt", "mid.txt"))
+
+
+def test_conflict_skip_all(vfs, conflict):
+    s, d = conflict
+    ctl = ScriptedCtl(["Skip All"])          # one prompt covers the rest
+    copy_op(vfs, _names(s), vfs, d, ctl)
+    assert len(ctl.asked) == 1
+    for n in ("new.txt", "old.txt", "mid.txt"):
+        assert open(f"{d}/{n}").read() == "DST-" + n
+
+
+def test_conflict_overwrite_all(vfs, conflict):
+    s, d = conflict
+    ctl = ScriptedCtl(["Overwrite All"])
+    copy_op(vfs, _names(s), vfs, d, ctl)
+    assert len(ctl.asked) == 1
+    for n in ("new.txt", "old.txt", "mid.txt"):
+        assert open(f"{d}/{n}").read() == "SRC-" + n
+
+
+def test_conflict_overwrite_all_older(vfs, conflict):
+    """TC semantics: replace only targets the source supersedes."""
+    s, d = conflict
+    ctl = ScriptedCtl(["Overwrite All Older"])
+    copy_op(vfs, _names(s), vfs, d, ctl)
+    assert len(ctl.asked) == 1
+    assert open(f"{d}/new.txt").read() == "SRC-new.txt"   # source newer
+    assert open(f"{d}/mid.txt").read() == "SRC-mid.txt"   # source newer
+    assert open(f"{d}/old.txt").read() == "DST-old.txt"   # target newer: kept
+
+
+def test_conflict_per_item(vfs, conflict):
+    s, d = conflict
+    ctl = ScriptedCtl(["Skip", "Overwrite", "Skip"])  # asked once per file
+    copy_op(vfs, _names(s), vfs, d, ctl)
+    assert len(ctl.asked) == 3
+    kept = [n for n in ("mid.txt", "new.txt", "old.txt")
+            if open(f"{d}/{n}").read().startswith("DST")]
+    assert len(kept) == 2  # two skipped, one overwritten
+
+
 def test_copy_tree_preserves_times(vfs, src, dst):
     old = time.time() - 90000  # ~25h ago, clear of any clock skew
     for p in (src + "/a.txt", src + "/sub/b.txt", src + "/sub/deep",

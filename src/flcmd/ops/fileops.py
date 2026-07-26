@@ -9,7 +9,8 @@ from .. import paths
 
 CHUNK = 1 << 20
 
-CONFLICT_BTNS = ["Overwrite", "Overwrite All", "Skip", "Skip All", "Cancel"]
+CONFLICT_BTNS = ["Overwrite", "Overwrite All", "Skip", "Skip All",
+                 "Overwrite All Older", "Cancel"]
 ERROR_BTNS = ["Retry", "Skip", "Skip All", "Cancel"]
 
 
@@ -129,15 +130,29 @@ def _guard(ctl: OpControl, policy: dict, path: str, fn) -> bool:
             return False
 
 
-def _resolve_conflict(ctl: OpControl, policy: dict, dst: str) -> bool:
+def _newer(src_mtime: float, dv, dp: str) -> bool:
+    """Is the source newer than the existing target? (unknown -> yes)"""
+    try:
+        return src_mtime > dv.stat(dp).mtime + 1  # 1s fs granularity slack
+    except OSError:
+        return True
+
+
+def _resolve_conflict(ctl: OpControl, policy: dict, dst: str,
+                      src_mtime: float = 0.0, dv=None) -> bool:
     """True = overwrite, False = skip this one."""
     ow = policy.get("overwrite")
+    if ow == "older":  # overwrite only what the source supersedes
+        return _newer(src_mtime, dv, dst)
     if ow is None:
         ans = ctl.ask(f"Target exists:\n{dst}", CONFLICT_BTNS)
         if ans == "Overwrite All":
             policy["overwrite"] = ow = True
         elif ans == "Skip All":
             policy["overwrite"] = ow = False
+        elif ans == "Overwrite All Older":
+            policy["overwrite"] = "older"
+            return _newer(src_mtime, dv, dst)
         else:
             return ans == "Overwrite"
     return ow
@@ -177,7 +192,8 @@ def _copy_file(sv, sp, dv, dp, ctl: OpControl, st=None, times: bool = True):
 
 def _copy_link(sv, sp, dv, dp, ctl, policy, move: bool):
     if dv.exists(dp):
-        if not _resolve_conflict(ctl, policy, dp):
+        if not _resolve_conflict(ctl, policy, dp,
+                                 sv.stat(sp).mtime, dv):
             ctl.item_done(sp)
             return
         if not _guard(ctl, policy, dp, lambda: dv.remove(dp)):
@@ -221,7 +237,8 @@ def _copy_tree(sv, sp, dv, dp, ctl, policy, move: bool, follow: bool,
             _guard(ctl, policy, sp, lambda: sv.rmdir(sp))
         ctl.item_done(sp)
         return
-    if dv.exists(dp) and not _resolve_conflict(ctl, policy, dp):
+    if dv.exists(dp) and not _resolve_conflict(ctl, policy, dp,
+                                                st.mtime, dv):
         ctl.add_bytes(st.size)
         ctl.item_done(sp)
         return
