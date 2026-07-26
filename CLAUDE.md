@@ -118,3 +118,10 @@ with VBoxManage from the host:
   `C:\util\totalcmd\TOTALCMD64.EXE` -- launch and drive it there
   (keyboardputscancode + screenshots) to check reference behavior when
   implementing TC features.
+- Also installed for testing: **MSYS2** at `C:\msys64` (openssh, rsync)
+  and the developer's **ssh keys/config** in `C:\Users\claude\.ssh`
+  (paramiko/flcmd) plus `/home/claude/.ssh` (MSYS2). Aliases `glin`,
+  `gxlin`, `gvlin` all reach the LAN hosts as user `gpertea` -- gvlin
+  must resolve by NAME (its known_hosts entry; the 192.168.2.11 entry
+  is stale). Large transfers host<->guest: the guest's `Z:` is the
+  host's `d:/dnld/` (faster than guestcontrol copyto).
