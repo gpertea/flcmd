@@ -221,14 +221,17 @@ class FileList(fltk.Fl_Box):
         self.redraw()
 
     def _autosize_cols(self):
-        """Name fills whatever the fixed columns leave over."""
+        """Name fills whatever the fixed columns leave over, unless the
+        user dragged its border (cleared again on pane resize)."""
         fixed = [self._user_w.get(c, d) for c, d in
                  ((1, COL_EXT), (2, COL_SIZE), (3, COL_DATE), (4, COL_ATTR))]
-        self._widths = [max(80, self.inner_w() - sum(fixed))] + fixed
+        name_w = self._user_w.get(0) or max(80, self.inner_w() - sum(fixed))
+        self._widths = [name_w] + fixed
         self.redraw()
 
     def resize(self, x, y, w, h):
         super().resize(x, y, w, h)
+        self._user_w.pop(0, None)  # Name re-fills on geometry changes
         self._autosize_cols()
 
     def cell_index(self, r: int, c: int = 0) -> int:
@@ -420,7 +423,13 @@ class FileList(fltk.Fl_Box):
             if self._hdr_push:
                 if self._hdr_push[1] is not None:  # border: start a resize
                     b = self._hdr_push[1]
-                    self._col_drag = (b, fltk.Fl.event_x(), self._widths[b])
+                    # the dragged divider stays reachable: clamp it a few
+                    # px inside the pane edge (columns beyond it just get
+                    # pushed off-screen, TC-style)
+                    maxw = max(20, self.inner_w() - 6
+                               - sum(self._widths[:b]))
+                    self._col_drag = (b, fltk.Fl.event_x(),
+                                      self._widths[b], maxw)
                 return 1
             self.take_focus()
             idx = self.row_at(fltk.Fl.event_y())
@@ -433,11 +442,12 @@ class FileList(fltk.Fl_Box):
         if event == fltk.FL_DRAG:
             if self._col_drag:
                 # TC semantics: resize the column left of the border; the
-                # columns to the right keep their widths and shift
-                b, sx, sw = self._col_drag
-                self.col_width(b, max(20, sw + fltk.Fl.event_x() - sx))
-                if b > 0:
-                    self._user_w[b] = self._widths[b]
+                # columns to the right keep their widths and shift (even
+                # fully off-screen -- dragging back restores them)
+                b, sx, sw, maxw = self._col_drag
+                self.col_width(b, min(max(20, sw + fltk.Fl.event_x() - sx),
+                                      maxw))
+                self._user_w[b] = self._widths[b]
                 return 1
             if self._cell_pushed and self._push_xy and not self._dragging:
                 dx = abs(fltk.Fl.event_x() - self._push_xy[0])
@@ -450,16 +460,7 @@ class FileList(fltk.Fl_Box):
                     self._dragging = False
             return 1
         if event == fltk.FL_RELEASE:
-            if self._col_drag:
-                b = self._col_drag[0]
-                self._col_drag = None
-                if b == 0:  # a Name drag shifts the difference into Ext
-                    rest = sum(self._user_w.get(c, d) for c, d in
-                               ((2, COL_SIZE), (3, COL_DATE), (4, COL_ATTR)))
-                    self._user_w[1] = max(
-                        20, self.inner_w() - self._widths[0] - rest)
-                # re-fill Name so the last column hugs the right edge
-                self._autosize_cols()
+            self._col_drag = None  # widths stay exactly as dragged (TC)
             hp, self._hdr_push = self._hdr_push, None
             if hp and self._push_xy:
                 col, border = hp
