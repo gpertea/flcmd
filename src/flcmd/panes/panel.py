@@ -1,6 +1,7 @@
 """File pane: path header + file table + selection footer.
 All keys resolve through the app keymap via the dispatch callable."""
 
+import atexit
 import sys
 import time
 from datetime import datetime
@@ -25,6 +26,19 @@ COLS = ("name", "ext", "size", "date", "attr")
 COL_TITLES = ("Name", "Ext", "Size", "Date", "Attr")
 
 _UP = DirEntry(name="..", is_dir=True)
+
+# temp dirs holding files staged for drag-out (archive/remote panes);
+# the OS may read them lazily, so they live until the app exits
+_DRAG_TMPS: list[str] = []
+
+
+def _clean_drag_tmps():
+    import shutil
+    for d in _DRAG_TMPS:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+atexit.register(_clean_drag_tmps)
 
 
 def _shift_down() -> bool:
@@ -923,9 +937,6 @@ class FilePane(fltk.Fl_Group):
 
     # -- drag and drop -------------------------------------------------------
     def start_drag(self):
-        if not isinstance(self.vfs, LocalVFS):
-            self.flash("drag-out: local files only (for now)")
-            return
         e = self.current()
         if self.selected and (not e or e.name in self.selected):
             names = [en.name for en in self.view if en.name in self.selected]
@@ -933,7 +944,12 @@ class FilePane(fltk.Fl_Group):
             names = [e.name]
         else:
             return
-        files = [paths.join(self.path, n) for n in names]
+        if isinstance(self.vfs, LocalVFS):
+            files = [paths.join(self.path, n) for n in names]
+        else:  # archive/sftp: drag a temp copy, the OS needs real files
+            files = self._stage_for_drag(names)
+            if not files:
+                return
         try:
             own = []
             w = fltk.Fl.first_window()
@@ -948,6 +964,30 @@ class FilePane(fltk.Fl_Group):
         while w:
             w.redraw()
             w = fltk.Fl.next_window(w)
+
+    def _stage_for_drag(self, names: list[str]) -> list[str]:
+        """Extract the selection to a temp dir so the OS can drag real
+        files (archives and remote panes have nothing on disk)."""
+        import tempfile
+
+        from .. import ops
+        from ..vfs import LocalVFS as _LV
+        items = [paths.join(self.path, n) for n in names]
+        total, _ = ops.scan(self.vfs, items)
+        if total > 256 << 20:  # 256 MB: use F5 for bulk extraction instead
+            self.flash("drag-out: selection too large, use F5")
+            return []
+        tmp = paths.canon(tempfile.mkdtemp(prefix="flcmd-drag-"))
+        self.flash("preparing drag...")
+        fltk.Fl.check()
+        ctl = ops.OpControl()
+        try:
+            ops.copy_op(self.vfs, items, _LV(), tmp, ctl)
+        except Exception as ex:  # noqa: BLE001 - surfaced to the user
+            self.flash(f"drag-out: {ex}")
+            return []
+        _DRAG_TMPS.append(tmp)  # removed at exit (OS may copy lazily)
+        return [paths.join(tmp, n) for n in names]
 
     def on_drop(self, text: str):
         files = []

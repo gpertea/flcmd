@@ -18,7 +18,12 @@ src/flcmd/
                 copyfile hooks; DirEntry dataclass
     local.py    local filesystem
     sftp.py     paramiko-backed remote FS (built-in SSH)
-    archive.py  zip/tar browsing (later: WCX packer plugins)
+    archive.py  read-only archive browsing: zip and tar (incl. .tgz/
+                .tar.bz2/.tar.xz) via stdlib, single-stream .gz/.bz2/.xz
+                as a one-member archive, rar/7z through an external tool
+                (7z, unrar or bsdtar) when present; drag-out from an
+                archive stages members in a temp dir. Packing and WCX
+                plugins later.
   panes/        file-list UI (custom-drawn FileList widget; NOT Fl_Table --
                 see docs/NOTES-pyfltk.md), path bar, tabs, quick search
   ops/          copy/move/delete/mkdir engines with progress + conflict
