@@ -215,13 +215,20 @@ def _copy_tree(sv, sp, dv, dp, ctl, policy, move: bool, follow: bool):
 
 
 def copy_op(sv, items: list[str], dv, dst_dir: str, ctl: OpControl,
-            move: bool = False, follow_symlinks: bool = False):
+            move: bool = False, follow_symlinks: bool = False,
+            rename: str | None = None):
     """Copy/move items (full paths) into dst_dir. Call from a worker thread.
-    Symlinks are recreated as links unless follow_symlinks is set."""
+    Symlinks are recreated as links unless follow_symlinks is set.
+    rename: destination name when copying/moving a single item under a
+    new name (TC's copy-as); ignored for multiple items."""
+
+    def dname(p):
+        return rename if rename and len(items) == 1 else paths.basename(p)
+
     if move and sv is dv:  # fast path: plain renames where possible
         rest = []
         for p in items:
-            dst = paths.join(dst_dir, paths.basename(p))
+            dst = paths.join(dst_dir, dname(p))
             if p == dst:
                 continue
             if dv.exists(dst):
@@ -238,7 +245,7 @@ def copy_op(sv, items: list[str], dv, dst_dir: str, ctl: OpControl,
     policy: dict = {}
     for p in items:
         ctl.check_cancel()
-        _copy_tree(sv, p, dv, paths.join(dst_dir, paths.basename(p)),
+        _copy_tree(sv, p, dv, paths.join(dst_dir, dname(p)),
                    ctl, policy, move, follow_symlinks)
 
 

@@ -60,6 +60,7 @@ DEFAULTS = {
     "file.edit": ["F4"],
     "file.edit_new": ["Shift+F4"],
     "file.copy": ["F5"],
+    "file.copy_same": ["Shift+F5"],
     "file.move": ["F6"],
     "file.rename": ["F2", "Shift+F6"],
     "file.mkdir": ["F7"],

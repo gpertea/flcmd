@@ -105,6 +105,19 @@ def test_move_tree_with_conflict(vfs, src, dst):
     assert open(dst + "/src/sub/deep/c.txt").read() == "c"
 
 
+def test_copy_rename(vfs, src, dst):
+    copy_op(vfs, [src + "/a.txt"], vfs, dst, ScriptedCtl(), rename="b.txt")
+    assert open(dst + "/b.txt").read() == "alpha"
+    assert os.path.exists(src + "/a.txt")
+
+
+def test_move_rename_same_dir(vfs, src):
+    copy_op(vfs, [src + "/a.txt"], vfs, src, ScriptedCtl(), move=True,
+            rename="renamed.txt")
+    assert open(src + "/renamed.txt").read() == "alpha"
+    assert not os.path.exists(src + "/a.txt")
+
+
 def test_delete(vfs, src):
     ctl = ScriptedCtl()
     delete_op(vfs, [src + "/sub"], ctl)

@@ -1,6 +1,7 @@
 """Main application: dual panes, function-key bar, action dispatch."""
 
 import os
+import re
 import stat as st_mod
 import sys
 from datetime import datetime
@@ -392,24 +393,40 @@ class App:
             App._ensure_dir(vfs, parent)
         vfs.mkdir(d)
 
-    def _copy_move(self, pane, move: bool):
+    def _copy_move(self, pane, move: bool, same_dir: bool = False):
         names = self._sources(pane)
         if not names:
             return
         other = self.other(pane)
         verb = "Move" if move else "Copy"
-        what = names[0] if len(names) == 1 else f"{len(names)} items"
-        dst, follow = dialogs.ask_dest(verb, f"{verb} {what} to:", other.path,
+        what = f'"{names[0]}"' if len(names) == 1 else f"{len(names)} items"
+        # TC-style prefill: destination dir + source name (or *.*);
+        # bare name for the same-folder copy (Shift+F5)
+        tail = names[0] if len(names) == 1 else "*.*"
+        prefill = tail if same_dir else paths.join(other.path, tail)
+        dst, follow = dialogs.ask_dest(verb, f"{verb} {what} to:", prefill,
                                        "Follow symlinks (copy link targets)")
-        if not dst:
+        if not dst or not dst.strip():
             return
-        dst = paths.canon(dst)
-        if not other.vfs.is_dir(dst):
+        dst = dst.strip().replace("\\", "/")
+        # a relative destination resolves against the SOURCE pane
+        if dst.startswith("/") or re.match(r"^[A-Za-z]:", dst):
+            dvfs, dst = other.vfs, paths.canon(dst)
+        else:
+            dvfs, dst = pane.vfs, paths.join(pane.path, dst)
+        rename = None
+        base = paths.basename(dst)
+        if base in ("*.*", "*"):
+            dst = paths.parent(dst)
+        elif len(names) == 1 and not dvfs.is_dir(dst):
+            rename = base            # copy/move under a new name (TC)
+            dst = paths.parent(dst)
+        if not dvfs.is_dir(dst):
             if not dialogs.confirm(verb, f"Create directory?\n{dst}",
                                    yes="Create"):
                 return
             try:
-                self._ensure_dir(other.vfs, dst)
+                self._ensure_dir(dvfs, dst)
             except OSError as e:
                 pane.flash(f"mkdir: {e}")
                 return
@@ -417,8 +434,9 @@ class App:
         ctl = ops.OpControl()
         ok = progress.run_operation(
             verb, f"{verb} {what} -> {dst}", ctl,
-            lambda: ops.copy_op(pane.vfs, items, other.vfs, dst, ctl,
-                                move=move, follow_symlinks=follow))
+            lambda: ops.copy_op(pane.vfs, items, dvfs, dst, ctl,
+                                move=move, follow_symlinks=follow,
+                                rename=rename))
         pane.refresh()
         other.refresh()
         pane.flash("cancelled" if ctl.error == "cancelled"
@@ -426,6 +444,9 @@ class App:
 
     def _act_file_copy(self, pane):
         self._copy_move(pane, move=False)
+
+    def _act_file_copy_same(self, pane):
+        self._copy_move(pane, move=False, same_dir=True)
 
     def _act_file_move(self, pane):
         self._copy_move(pane, move=True)
