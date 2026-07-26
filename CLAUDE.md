@@ -22,12 +22,14 @@ emulating Total Commander functionality and keyboard shortcuts.
   hardcoded key handling in widgets -- keybindings are user-remappable.
 
 ## pyFLTK rules (hard-won -- full write-ups in docs/NOTES-pyfltk.md)
-- **Parentless widgets must outlive every FLTK reference to them.** A
-  widget not added to a group is owned by the Python proxy: when the last
-  Python ref goes, the C++ object is freed while FLTK may still point at
-  it, and the process dies later in an unrelated redraw. Add it to a
-  group, or keep one long-lived instance and reuse it (popups go through
-  `ui/menus.popup()`).
+- **Menu `user_data` is NOT increfed by pyfltk** (the callback is): a
+  computed token (`"go:" + path`, an f-string) is freed while FLTK holds
+  the raw `PyObject*`, and picking that item corrupts the heap -- the
+  crash lands later in an unrelated redraw. Literals are safe (they live
+  in the code object), which hides the pattern. Build every menu through
+  `ui/menus.py`: `popup(build)` for transient menus, `token(t)` for
+  menubar items. Same reasoning: parentless widgets (e.g. a per-call
+  popup) must outlive FLTK's references to them.
 - **Windows: native calls that deliver or pump window messages go through
   `ctypes.PyDLL`, never `windll`** (which releases the GIL): DoDragDrop,
   SetWindowPos/SetWindowLongPtr/ShowWindow/SendMessage, TrackPopupMenu,

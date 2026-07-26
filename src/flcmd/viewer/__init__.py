@@ -101,12 +101,17 @@ class ViewerWindow(fltk.Fl_Double_Window):
                fltk.FL_MENU_DIVIDER)
         mb.add("&Options/&Wrap lines\tw", 0, cb, "wrap")
         mb.add("&Options/&ASCII only\ta", 0, cb, "ascii", fltk.FL_MENU_DIVIDER)
+        # computed tokens must stay referenced: FLTK holds the raw
+        # PyObject* (see ui/menus.py)
+        from ..ui import menus
         for z, lbl in (("fit", "&Fit"), ("fitw", "Fit &Width"), ("100", "&100%")):
-            mb.add(f"&Options/Image &Zoom/{lbl}", 0, cb, f"izoom:{z}")
+            mb.add(f"&Options/Image &Zoom/{lbl}", 0, cb,
+                   menus.token(f"izoom:{z}"))
         for name in FONTS:
-            mb.add(f"&Options/&Font/{name}", 0, cb, f"font:{name}")
+            mb.add(f"&Options/&Font/{name}", 0, cb,
+                   menus.token(f"font:{name}"))
         for s in SIZES:
-            mb.add(f"&Options/Si&ze/{s}", 0, cb, f"size:{s}")
+            mb.add(f"&Options/Si&ze/{s}", 0, cb, menus.token(f"size:{s}"))
 
     def _menu_cb(self, wid, action):
         self.do_action(action)

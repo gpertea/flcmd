@@ -202,11 +202,16 @@ class App:
         mb.add("&Show/&Command Line", 0, cb, "cmdline.toggle",
                fltk.FL_MENU_DIVIDER)
         from .panes.thumbs import TILE_SIZES
+        from .ui import menus
+        # computed tokens must stay referenced: FLTK holds the raw
+        # PyObject* (see ui/menus.py)
         for ts in TILE_SIZES:
-            mb.add(f"&Show/Thumbnail Si&ze/{ts} px", 0, cb, f"thumbs.size:{ts}")
+            mb.add(f"&Show/Thumbnail Si&ze/{ts} px", 0, cb,
+                   menus.token(f"thumbs.size:{ts}"))
         for z, lbl in (("fit", "&Fit"), ("fitw", "Fit &Width"),
                        ("100", "&100%")):
-            mb.add(f"&Show/Preview &Zoom/{lbl}", 0, cb, f"preview.zoom:{z}")
+            mb.add(f"&Show/Preview &Zoom/{lbl}", 0, cb,
+                   menus.token(f"preview.zoom:{z}"))
         mb.add("C&onfiguration/&Options...", 0, cb, "cfg.options", inactive)
         mb.add("C&onfiguration/Change &Editor Command...", 0, cb, "cfg.editor")
         mb.add("C&onfiguration/&Folder Shortcuts...", 0, cb,
@@ -726,19 +731,18 @@ class App:
         self.set_active_pane(pane)
         data = bookmarks.load()
 
-        def build(mb, pick):
+        def build(add):
             def add_nodes(nodes, prefix):
                 for node in nodes:
                     title = esc(node.get("title", "?")).replace("/", "\\/")
                     if "items" in node:
                         add_nodes(node["items"], prefix + title + "/")
                     else:
-                        mb.add(prefix + title, 0, pick,
-                               "go:" + node.get("path", ""))
+                        add(prefix + title, "go:" + node.get("path", ""))
 
             add_nodes(data["bookmarks"], "")
-            mb.add("+ Add current dir", 0, pick, "add", fltk.FL_MENU_DIVIDER)
-            mb.add("* Configure...", 0, pick, "configure")
+            add("+ Add current dir", "add", fltk.FL_MENU_DIVIDER)
+            add("* Configure...", "configure")
 
         token = menus.popup(build)
         if token == "add":

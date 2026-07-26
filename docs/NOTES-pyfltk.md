@@ -3,38 +3,46 @@
 Hard-won findings; each one cost a debugging session. Relevant to ANY
 pyFLTK app, not just flcmd.
 
-1. [Widget lifetime](#1-widget-lifetime-parentless-widgets-die-with-their-python-ref)
+1. [Menu user_data is not increfed](#1-menu-user_data-is-not-increfed)
 2. [The GIL trap on Windows](#2-the-gil-trap-native-calls-that-deliver-messages)
 3. [Fl_Table is not a file list](#3-fl_table-is-not-a-file-list)
 
 ---
 
-# 1. Widget lifetime: parentless widgets die with their Python ref
+# 1. Menu user_data is not increfed
 
-**Symptom** (2026-07, folder-shortcuts menu): picking an item from a
-popup menu killed the process an unpredictable moment later, with an
-access violation inside a completely unrelated redraw.
+**Symptom** (2026-07, folder-shortcuts menu): picking a bookmark from
+the popup menu killed the process an unpredictable moment later, with
+an access violation inside a completely unrelated redraw (`fl_width()`
+while drawing a file row). Sometimes it crashed at once, sometimes the
+pick silently did nothing, sometimes it worked.
 
-**Cause.** A widget added to a group is owned by FLTK; a **parentless**
-widget is owned by the Python proxy and its C++ object is freed as soon
-as the last Python reference goes away. A menu built per call:
+**Cause.** In `mb.add(label, shortcut, callback, user_data)` pyFLTK
+increfs the *callback* but **not** the *user_data*: FLTK stores the raw
+`PyObject*`. Verify it yourself:
 
-    mb = fltk.Fl_Menu_Button(x, y, 0, 0)   # no parent
-    ...
-    mb.popup()                             # returns -> mb is garbage
+    mb.add("item", 0, cb, data)
+    sys.getrefcount(cb)    # +1
+    sys.getrefcount(data)  # unchanged  <-- dangling as soon as you drop it
 
-is freed while FLTK still holds pointers to it (picked item + its
-callback data, `Fl::pushed()`, damage list). The crash lands wherever
-that memory is next touched -- typically a later redraw, hence the
-delay, which makes the real culprit invisible in the traceback.
+A computed token (`"go:" + path`, an f-string) therefore dies with the
+caller's local, and picking that item hands the callback a freed
+object: heap corruption that surfaces anywhere later. String
+**literals** live in the code object forever, which is why
+"+ Add current dir" (`"add"`) always worked while bookmark entries
+(`"go:" + path`) crashed -- a nasty asymmetry that hides the pattern.
 
-**Rule.** Any widget created without a parent must outlive every FLTK
-reference to it. Either add it to a group/window, or keep one
-long-lived instance and reuse it. flcmd does the latter for popups:
-`ui/menus.py` keeps a single `Fl_Menu_Button`, `clear()`s and
-repositions it per popup. Same applies to menus built in a callback,
-temporary dialogs held in locals, and image/box objects passed to
-widgets that keep a raw pointer.
+**Rule.** Keep a strong reference to every user_data object for as long
+as the menu can be picked. flcmd routes all menus through
+`ui/menus.py`: `popup(build)` (transient menus; `build(add)` adds items
+and the helper retains their tokens) and `token(t)` (menubar items,
+retained for the process). Labels are safe -- `Fl_Menu_::add()` copies
+them.
+
+Related, though it was *not* the cause here: a parentless widget is
+owned by its Python proxy, so it must also outlive every FLTK reference
+to it -- `ui/menus.py` keeps one reusable `Fl_Menu_Button` rather than
+building one per popup.
 
 ---
 

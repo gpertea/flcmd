@@ -102,9 +102,9 @@ class LocationsToolbar(fltk.Fl_Group):
             return
         from . import menus
 
-        def build(mb, pick):
-            mb.add("Edit...", 0, pick, "edit")
-            mb.add("Delete", 0, pick, "delete")
+        def build(add):
+            add("Edit...", "edit")
+            add("Delete", "delete")
 
         result = [menus.popup(build)]
         if result[0] == "edit":
