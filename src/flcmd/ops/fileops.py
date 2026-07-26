@@ -143,7 +143,17 @@ def _resolve_conflict(ctl: OpControl, policy: dict, dst: str) -> bool:
     return ow
 
 
-def _copy_file(sv, sp, dv, dp, ctl: OpControl):
+def _set_times(dv, dp, mtime: float) -> None:
+    """Best-effort timestamp copy (archives and some servers refuse)."""
+    if not mtime:
+        return
+    try:
+        dv.set_times(dp, mtime)
+    except (OSError, NotImplementedError):
+        pass
+
+
+def _copy_file(sv, sp, dv, dp, ctl: OpControl, st=None, times: bool = True):
     ctl.set_current(sp)
     try:
         with sv.open(sp, "rb") as fi, dv.open(dp, "wb") as fo:
@@ -157,9 +167,12 @@ def _copy_file(sv, sp, dv, dp, ctl: OpControl):
         except OSError:
             pass
         raise
-    cs = getattr(dv, "copystat", None)
-    if cs and sv is dv:
+    same = sv is dv
+    cs = getattr(dv, "copystat" if times else "copymode", None)
+    if cs and same:         # same filesystem: mode (+ times) in one call
         cs(sp, dp)
+    elif times:             # across VFSes (sftp <-> local): times only
+        _set_times(dv, dp, (st or sv.stat(sp)).mtime)
 
 
 def _copy_link(sv, sp, dv, dp, ctl, policy, move: bool):
@@ -182,7 +195,8 @@ def _copy_link(sv, sp, dv, dp, ctl, policy, move: bool):
     ctl.item_done(sp)
 
 
-def _copy_tree(sv, sp, dv, dp, ctl, policy, move: bool, follow: bool):
+def _copy_tree(sv, sp, dv, dp, ctl, policy, move: bool, follow: bool,
+               times: bool = True):
     st = sv.stat(sp)
     if st.is_link:
         if not follow:
@@ -200,7 +214,9 @@ def _copy_tree(sv, sp, dv, dp, ctl, policy, move: bool, follow: bool):
         for e in sv.listdir(sp):
             ctl.check_cancel()
             _copy_tree(sv, paths.join(sp, e.name), dv, paths.join(dp, e.name),
-                       ctl, policy, move, follow)
+                       ctl, policy, move, follow, times)
+        if times:  # after the contents: writing them bumps the dir mtime
+            _set_times(dv, dp, st.mtime)
         if move:
             _guard(ctl, policy, sp, lambda: sv.rmdir(sp))
         ctl.item_done(sp)
@@ -209,18 +225,21 @@ def _copy_tree(sv, sp, dv, dp, ctl, policy, move: bool, follow: bool):
         ctl.add_bytes(st.size)
         ctl.item_done(sp)
         return
-    if _guard(ctl, policy, sp, lambda: _copy_file(sv, sp, dv, dp, ctl)) and move:
+    if _guard(ctl, policy, sp,
+              lambda: _copy_file(sv, sp, dv, dp, ctl, st, times)) and move:
         _guard(ctl, policy, sp, lambda: sv.remove(sp))
     ctl.item_done(sp)
 
 
 def copy_op(sv, items: list[str], dv, dst_dir: str, ctl: OpControl,
             move: bool = False, follow_symlinks: bool = False,
-            rename: str | None = None):
+            rename: str | None = None, times: bool = True):
     """Copy/move items (full paths) into dst_dir. Call from a worker thread.
     Symlinks are recreated as links unless follow_symlinks is set.
     rename: destination name when copying/moving a single item under a
-    new name (TC's copy-as); ignored for multiple items."""
+    new name (TC's copy-as); ignored for multiple items.
+    times: preserve modification times (files and directories), including
+    across VFSes (sftp <-> local); best-effort, ignored where unsupported."""
 
     def dname(p):
         return rename if rename and len(items) == 1 else paths.basename(p)
@@ -246,7 +265,7 @@ def copy_op(sv, items: list[str], dv, dst_dir: str, ctl: OpControl,
     for p in items:
         ctl.check_cancel()
         _copy_tree(sv, p, dv, paths.join(dst_dir, dname(p)),
-                   ctl, policy, move, follow_symlinks)
+                   ctl, policy, move, follow_symlinks, times)
 
 
 def delete_op(vfs, items: list[str], ctl: OpControl):

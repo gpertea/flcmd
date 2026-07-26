@@ -79,6 +79,9 @@ class SftpVFS(VFS):
     def symlink(self, target: str, path: str, is_dir: bool = False) -> None:
         self.sftp.symlink(target, path)
 
+    def set_times(self, path: str, mtime: float, atime: float | None = None):
+        self.sftp.utime(path, (mtime if atime is None else atime, mtime))
+
     def display(self, path: str) -> str:
         return f"sftp://{self.session.label}{path}"
 

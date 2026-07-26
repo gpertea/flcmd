@@ -84,6 +84,16 @@ class LocalVFS(VFS):
     def rename(self, old: str, new: str) -> None:
         os.replace(old, new)
 
+    def set_times(self, path: str, mtime: float, atime: float | None = None):
+        os.utime(path, (mtime if atime is None else atime, mtime))
+
+    def copymode(self, src: str, dst: str) -> None:
+        import shutil
+        try:
+            shutil.copymode(src, dst)
+        except OSError:
+            pass
+
     def copystat(self, src: str, dst: str) -> None:
         import shutil
         try:

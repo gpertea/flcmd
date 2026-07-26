@@ -51,6 +51,10 @@ class VFS(ABC):
     def symlink(self, target: str, path: str, is_dir: bool = False) -> None:
         raise OSError(f"{self.scheme}: symlinks not supported")
 
+    def set_times(self, path: str, mtime: float, atime: float | None = None):
+        """Set modification (and access) time; best-effort for callers."""
+        raise OSError(f"{self.scheme}: timestamps not supported")
+
     def is_dir(self, path: str) -> bool:
         """True if path is (or links to) a directory: 'can I chdir into /
         write into it'. Ops that must not follow links use stat() directly."""

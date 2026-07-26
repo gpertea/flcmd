@@ -2,6 +2,7 @@
 ask() is scripted and ops run on the test thread)."""
 
 import os
+import time
 
 import pytest
 
@@ -116,6 +117,34 @@ def test_move_rename_same_dir(vfs, src):
             rename="renamed.txt")
     assert open(src + "/renamed.txt").read() == "alpha"
     assert not os.path.exists(src + "/a.txt")
+
+
+def test_copy_tree_preserves_times(vfs, src, dst):
+    old = time.time() - 90000  # ~25h ago, clear of any clock skew
+    for p in (src + "/a.txt", src + "/sub/b.txt", src + "/sub/deep",
+              src + "/sub", src):
+        os.utime(p, (old, old))
+    copy_op(vfs, [src], vfs, dst, ScriptedCtl())
+    for rel in ("/src/a.txt", "/src/sub/b.txt", "/src/sub", "/src"):
+        assert abs(os.stat(dst + rel).st_mtime - old) < 2, rel
+
+
+def test_copy_tree_times_across_vfs(src, dst):
+    """Two VFS instances take the cross-VFS path (as sftp <-> local does),
+    where copystat does not apply and set_times must do the work."""
+    old = time.time() - 90000
+    for p in (src + "/a.txt", src + "/sub/b.txt", src + "/sub", src):
+        os.utime(p, (old, old))
+    copy_op(LocalVFS(), [src], LocalVFS(), dst, ScriptedCtl())
+    for rel in ("/src/a.txt", "/src/sub/b.txt", "/src/sub", "/src"):
+        assert abs(os.stat(dst + rel).st_mtime - old) < 2, rel
+
+
+def test_copy_times_off(vfs, src, dst):
+    old = time.time() - 90000
+    os.utime(src + "/a.txt", (old, old))
+    copy_op(vfs, [src + "/a.txt"], vfs, dst, ScriptedCtl(), times=False)
+    assert os.stat(dst + "/a.txt").st_mtime > old + 1000
 
 
 def test_delete(vfs, src):
