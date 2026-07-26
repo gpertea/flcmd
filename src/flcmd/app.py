@@ -722,31 +722,25 @@ class App:
     def _act_bookmarks_menu(self, pane):
         """Folder-shortcuts popup (double-click on the panel header)."""
         from . import bookmarks
-        from .ui import esc
+        from .ui import esc, menus
         self.set_active_pane(pane)
         data = bookmarks.load()
-        result: list = [None]
 
-        def pick(wid, token):
-            result[0] = token
+        def build(mb, pick):
+            def add_nodes(nodes, prefix):
+                for node in nodes:
+                    title = esc(node.get("title", "?")).replace("/", "\\/")
+                    if "items" in node:
+                        add_nodes(node["items"], prefix + title + "/")
+                    else:
+                        mb.add(prefix + title, 0, pick,
+                               "go:" + node.get("path", ""))
 
-        mb = fltk.Fl_Menu_Button(fltk.Fl.event_x_root(),
-                                 fltk.Fl.event_y_root(), 0, 0)
-        mb.type(fltk.Fl_Menu_Button.POPUP3)
+            add_nodes(data["bookmarks"], "")
+            mb.add("+ Add current dir", 0, pick, "add", fltk.FL_MENU_DIVIDER)
+            mb.add("* Configure...", 0, pick, "configure")
 
-        def add_nodes(nodes, prefix):
-            for node in nodes:
-                title = esc(node.get("title", "?")).replace("/", "\\/")
-                if "items" in node:
-                    add_nodes(node["items"], prefix + title + "/")
-                else:
-                    mb.add(prefix + title, 0, pick, "go:" + node.get("path", ""))
-
-        add_nodes(data["bookmarks"], "")
-        mb.add("+ Add current dir", 0, pick, "add", fltk.FL_MENU_DIVIDER)
-        mb.add("* Configure...", 0, pick, "configure")
-        mb.popup()
-        token = result[0]
+        token = menus.popup(build)
         if token == "add":
             self._bookmark_add_current(pane)
         elif token == "configure":

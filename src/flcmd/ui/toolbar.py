@@ -100,13 +100,13 @@ class LocationsToolbar(fltk.Fl_Group):
         items = bookmarks.load()["toolbar"]
         if not (0 <= index < len(items)):
             return
-        result = [None]
-        mb = fltk.Fl_Menu_Button(fltk.Fl.event_x_root(),
-                                 fltk.Fl.event_y_root(), 0, 0)
-        mb.type(fltk.Fl_Menu_Button.POPUP3)
-        mb.add("Edit...", 0, lambda w, t: result.__setitem__(0, "edit"))
-        mb.add("Delete", 0, lambda w, t: result.__setitem__(0, "delete"))
-        mb.popup()
+        from . import menus
+
+        def build(mb, pick):
+            mb.add("Edit...", 0, pick, "edit")
+            mb.add("Delete", 0, pick, "delete")
+
+        result = [menus.popup(build)]
         if result[0] == "edit":
             it = items[index]
             vals = dialogs.ask_fields(
